@@ -5,6 +5,29 @@ paths are per the [Victron D-Bus specification](https://github.com/victronenergy
 
 Modbus devices using the RTU, TCP, and UDP transports are supported.
 
+# Developing and installation
+
+In case you have not yet found it, read this, it will save you a lot of time.
+
+https://github.com/victronenergy/venus/wiki/howto-add-a-driver-to-Venus
+
+Important parts are if you are installing for a RTU device first stop the serial starter
+
+    /opt/victronenergy/serial-starter/stop-tty.sh ttyUSB0
+
+Then you can run on the command line locally.
+
+To install properly follow the instructions in the wiki document.
+
+# TODO
+
+[ ] Add Estron SDM230 support
+[ ] Find out the relevance of ProductID and why Victron Support need to allocate one, if they do.
+[ ] Write a drive for Growatt MIN inverters using the MultiRS dbus area.
+[ ] Try and add missing data from the SDM230 to the dbus
+[ ] Connect a p8s exporter to the dbus for more detailed monitoring via Grafana Cloud.
+[ ] Allow control of the PV inverter via VRM.
+
 ## VregLink
 
 With some devices, the [VregLink](https://github.com/victronenergy/venus/wiki/dbus-api#the-vreglink-interface)

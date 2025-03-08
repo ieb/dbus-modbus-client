@@ -25,15 +25,18 @@ from scan import *
 from utils import *
 import watchdog
 
-import abb
-import carlo_gavazzi
-import comap
-import cre
-import deif
-import dse
-import ev_charger
-import smappee
-import victron_em
+# while developing only enable the client to be tested
+#import abb
+#import carlo_gavazzi
+#import comap
+#import cre
+#import deif
+#import dse
+#import ev_charger
+#import smappee
+#import victron_em
+import eastron_sdm230
+import growatt_pv_v120
 
 import logging
 log = logging.getLogger()
@@ -429,6 +432,7 @@ def main():
         client = NetClient()
 
     client.err_exit = args.exit
+    log.info("Force Scan is %s ", args.force_scan)
     client.init(args.force_scan)
 
     GLib.timeout_add(UPDATE_INTERVAL, client.update_timer)

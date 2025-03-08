@@ -34,6 +34,7 @@ def probe(mlist, pr_cb=None, pr_interval=10, timeout=None, filt=None):
 
             try:
                 for u in units:
+                    log.info('Probing %s unit:%d', m, u)
                     mm = m._replace(unit=u)
 
                     if filt and not filt(mm):
@@ -110,20 +111,24 @@ class ModelRegister:
                 raise Exception('connection error')
 
             for acs in self.access:
+                log.info("Read from Register %s %d", acs, self.reg.base, )
                 rr = modbus.read_registers(self.reg.base, self.reg.count,
                                            acs, unit=spec.unit)
                 if not rr.isError():
                     break
 
         if rr.isError():
-            log.debug('%s: %s', modbus, rr)
+            log.debug('%s: Received error %s', modbus, rr)
             return None
-
+        log.info('Good response, decoding ')
         try:
             self.reg.decode(rr.registers)
+            log.info(' Detected ID:%d mapped:%s', self.reg.value, self.models[self.reg.value])
             m = self.models[self.reg.value]
             return m['handler'](spec, modbus, m['model'])
-        except:
+        except Exception as err:
+            print(f"Unexpected {err=}, {type(err)=}")
+            log.info(' Failed decode')
             return None
 
     def get_models(self):
