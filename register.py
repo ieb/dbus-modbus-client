@@ -2,6 +2,8 @@ from copy import copy
 import struct
 from utils import get_enum
 from collections.abc import Iterable
+import logging
+log = logging.getLogger()
 
 class Reg:
     def __new__(cls, *args, **kwargs):
@@ -33,7 +35,10 @@ class Reg:
 
     def __str__(self):
         if isinstance(self.text, str):
-            return self.text % self.value
+            try:
+                return self.text % self.value
+            except Exception as err :
+                log.info(f'failed {err} {self.name} {self.text} {self.value} {type(self.text)} {type(self.value)}')
         if hasattr(self.text, '__getitem__'):
             try:
                 return self.text[self.value]

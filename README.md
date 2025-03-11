@@ -19,14 +19,28 @@ Then you can run on the command line locally.
 
 To install properly follow the instructions in the wiki document.
 
+# Discoveries
+
+There is an assumption by Victron that a PV String charges a battery, which is wrong where the 
+pv inverter is grid tied. Hence a multi doesnt work to represent a Growatt, but the standard model
+has no fields for PV strings.  Will try to convert the Growatt pv model into a pv inverter model,
+with PV strings added as custom fields.
+
+Converting from multi to pvinverter works, but the PV string information is lost. This is currently being added under an /internal path so that its not picked up by the gui. As far as I can tell this is not sent to the VRM and is only visible on the detail of the dbus under debug in teh gui.
+
+The modbus client driver was written with the assumption that all devices on a single RTU serial port would be responding. On startup it scans the last known configured set of units, only activates those found and saves them. By default the RTU client does not run a re-scan on failed devices, fixed by setting rescan to true on the SerialClient. This seems to cause the update loop in the service to restart the scanner every 600s. 
+
+
 # TODO
 
-[ ] Add Estron SDM230 support
+[x] Add Estron SDM230 support
 [ ] Find out the relevance of ProductID and why Victron Support need to allocate one, if they do.
-[ ] Write a drive for Growatt MIN inverters using the MultiRS dbus area.
-[ ] Try and add missing data from the SDM230 to the dbus
+[x] Write a drive for Growatt MIN inverters using the MultiRS dbus area.
+[x] Try and add missing data from the SDM230 to the dbus
 [ ] Connect a p8s exporter to the dbus for more detailed monitoring via Grafana Cloud.
 [ ] Allow control of the PV inverter via VRM.
+[ ] Find a way of the driver continuing to work when the Growatt goes to sleep at night - made SerialClient run a rescan operation.
+
 
 ## VregLink
 

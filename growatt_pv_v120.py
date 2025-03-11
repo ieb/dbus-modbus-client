@@ -12,20 +12,38 @@
 # From the spec, 
 # TL-X(MIN Type):03 register range:0~124,3000~3124;04 register range:3000~3124,3125~3249
 #
-# DBus location
-# A PV Inverter is closest to the com.victronenergy.multi area since it will have 1..n Strings and AC out.
-# https://github.com/victronenergy/venus/wiki/dbus#multi-rs-and-other-future-new-inverterchargers
-# Could use https://github.com/victronenergy/venus/wiki/dbus#pv-inverters but then it would only have the AC part
-# Also could use https://github.com/victronenergy/venus/wiki/dbus#solar-chargers but its not connected to a battery.
-#
-# using multi-rs as a model.
 
-import logging
 import device
 import probe
 from register import *
+import time
 
+import logging
 log = logging.getLogger()
+
+DERATE_MODE = {
+    0: 'None',
+    1: 'PV',
+    2: '*',
+    3: 'Vac',
+    4: 'Fac',
+    5: 'Tboost',
+    6: 'Tinv',
+    7: 'Control',
+    8: '*',
+    9: 'Overback'
+    }
+EXPORT_LIMIT_TYPE = {
+    0: 'Disable',
+    1: 'RS485',
+    2: 'RS232',
+    3: 'CT',
+    }
+G100_FAIL_SAFE = {
+    0: 'Disable',
+    1: 'Enable',
+    }
+
 
 class Reg_equalsu16(Reg_u16):
     count = 1
@@ -39,14 +57,13 @@ class Reg_equalsu16(Reg_u16):
     def decode(self, values):
         return self.update(self.trueValue if values[0] == self.matchValue else self.falseValue)
 
-class GrowattPVInverter(device.ModbusDevice):
-    device_type = 'Energy meter'
-    role_names = ['grid', 'pvinverter', 'genset', 'acload', 'evcharger',
-                  'heatpump', 'multi']
+class GrowattPVInverter(device.ModbusDevice, device.CustomName):
+    device_type = 'PV Inverter'
+    role_names = ['pvinverter']
     allowed_roles = role_names
-    default_role = 'multi'
+    default_role = 'pvinverter'
     default_instance = 40
-    productid = 0xB088 # made it up, not sure how much it matters
+    productid = 0xB089 # made it up, not sure how much it matters
     productname = 'GrowattPV MID4200'
     device_type = 'PV Inverter'
     vendor_name = 'Growatt'
@@ -69,46 +86,55 @@ class GrowattPVInverter(device.ModbusDevice):
         # reg 44 encodes Input tracker numbers and output phase numbers
         # 0x0203 == 
 
-
         self.info_regs = [
             Reg_text( 12, 2, '/HardwareVersion', access='holding'),
             Reg_text( 9, 3, '/FirmwareVersion',  access='holding'),
             Reg_text( 209, 15, '/Serial',        access='holding'), 
+            Reg_u16(42, '/Internal/g100FailSafe',  1, '%.1f', access='holding'),
+            Reg_u16(104, '/Internal/DerateMode',   1, '%.1f', access='holding'),
+            Reg_u16(122, '/Internal/exportLimitType',           1, '%.1f', access='holding'),
+            Reg_u16(123, '/Internal/ExportLimitPowerRate',      10, '%.1f %%', access='holding'),
+            Reg_u16(3000, '/Internal/g100FailSafePowerRate',      10, '%.1f W', access='holding'),
         ]
+
+
+    def position_setting_changed(self, service, path, value):
+        self.dbus['/Position'] = value['Value']
+
+    def init_device_settings(self, dbus):
+        super().init_device_settings(dbus)
+
+        self.pos_item = None
+        if self.role == 'pvinverter':
+            self.pos_item = self.settings.addSetting(
+                self.settings_path + '/Position', 0, 0, 2,
+                callback=self.position_setting_changed)
+
+
+    def position_changed(self, path, val):
+        if not 0 <= val <= 2:
+            return False
+        self.pos_item.set_value(val)
+        return True
 
     def device_init_late(self):
         super().device_init_late()
-
-            
-        if self.role == 'pvinverter' and self.position is None:
-            self.add_settings({'position': ['/Position', 0, 0, 2]})
-            self.add_dbus_setting('position', '/Position')
-
-  
-        self.dbus.add_path('/CustomName','BackRoof')
-        self.dbus.add_path('/NrOfPhases', self.nr_phases)
-        self.dbus.add_path('/Ac/NumberOfAcInputs', 0)
-        self.dbus.add_path('/MppOperationMode', 2) # mppt
-        self.dbus.add_path('/Mode', 3) # inverter only
-        self.dbus.add_path('/NrOfTrackers', self.nr_trackers)
-        for n in range(0, self.nr_trackers):
-            self.dbus.add_path('/Pv/%d/MppOperationMode' % n, 2) # mppt
-            self.dbus.add_path('/Pv/%d/Name' % n, 'String %d' % (n+1)) 
-
+        
+        self.dbus.add_path('/DeviceName','GrowattPV MID4200TL')
+        self.dbus.add_path('/NrOfPhases',1)
+        self.dbus.add_path('/Ac/MaxPower','4200 W')
+        self.dbus.add_path('/Ac/Phase',1)
+        self.dbus.add_path('/Position', 0)
+        
 
     def tracker_regs(self, n):
         s = 4 * n
-
-
-#/Pv/x/V                                 <- PV array voltage from tracker x+1; todays max number of trackers in a single Victron product is 4
-#/Pv/x/P                                 <- PV array power from tracker no. x+1
-#/Pv/x/MppOperationMode                  <- Operating mode of tracker no. x+1 (See /MppOperationMode below, since v3.??)
-#/Pv/x/Name                              <- Custom name tracker no. x+1
-
         return [
-            Reg_u16(3 + s, '/Pv/%d/V' % n,      10, '%.1f V'),
-            Reg_u16(4 + s, '/Pv/%d/I' % n,      10, '%.1f A'),
-            Reg_u32b(5 + s, '/Pv/%d/P' % n,      10, '%.1f W'),
+            Reg_u16(3 + s, '/Internal/Pv/%d/V' % n,      10, '%.1f V'),
+            Reg_u16(4 + s, '/Internal/Pv/%d/I' % n,      10, '%.1f A'),
+            Reg_u32b(5 + s, '/Internal/Pv/%d/P' % n,      10, '%.1f W'),
+            Reg_u32b(59 + s, '/Internal/Pv/%d/Energy/Today' % n,  10, '%.1f W'),
+            Reg_u32b(61 + s, '/Internal/Pv/%d/Energy/Total' % n,  10, '%.1f W'),
         ]
 
     def device_init(self):
@@ -116,67 +142,42 @@ class GrowattPVInverter(device.ModbusDevice):
         self.read_info()
 
 
-
-
-#
-#/Ac/NumberOfPhases
-#/Ac/NumberOfAcInputs
-#/Alarms/LowVoltageAcOut                 <- Low AC Out voltage
-#/Alarms/HighVoltageAcOut                <- High AC Out voltage
-#/Alarms/HighTemperature                 <- High device temperature
-#/Alarms/Overload                        <- Inverter overload
-#/Alarms/Ripple                          <- High DC ripple
-#
-#
-#
-#/NrOfTrackers
-#/Yield/Power                            <- PV array power (Watts)
-#/Yield/User                             <- Total kWh produced (user resettable)
-#/Yield/System                           <- Total kWh produced (not resettable)
-#/MppOperationMode                       <- 0 = Off
-#                                           1 = Voltage or Current limited
-#                                           2 = MPPT Tracker active
-#                                           For products with multiple trackers, this is an aggregate of the separate tracker states. When one or more
-#                                           trackers are voltage/current limited, this value also shows voltage/current limited. If there is no tracker
-#                                           that is voltage/current limited, but one or more trackers are on (so mpp tracking), then the overall state
-#                                           is MPP tracking.
-
-# no reg Reg_u32b(0x0001, '/Ac/Current',        1, '%.1f A'),
-#
-#/Ac/Out/L1/V                           <- Voltage of AC IN1 on L1
-#/Ac/Out/L1/F                           <- Frequency of AC IN1 on L1
-#/Ac/Out/L1/I                           <- Current of AC IN1 on L1
-#/Ac/Out/L1/P                           <- Real power of AC IN1 on L1
-# frequency is the same on all phases in a growatt, would be interesting if not.
-
-# reg 105 u16 is a fault code 
-# reg 106 u32 is a fault code bitmap
-# 0x20000000 == 
+        # standard pviverter model
         regs = [
-            Reg_equalsu16(105, '/Alarms/LowVoltageAcOut', 30),
-            Reg_equalsu16(105, '/Alarms/HighVoltageAcOut', 30),
-            Reg_equalsu16(105, '/Alarms/HighTemperature', 32),
-            Reg_u32b(1, '/Yield/Power',          10, '%.1f W'),
-            Reg_u32b(53, '/Yield/User',          10, '%.1f kWh'),
-            Reg_u32b(55, '/Yield/System',        10, '%.1f kWh'),
-            Reg_u16(37, '/Ac/Out/L1/F',     100, '%.1f Hz'),
-            Reg_u16(38, '/Ac/Out/L1/V',      10, '%.1f V'),
-            Reg_u16(39, '/Ac/Out/L1/I',      10, '%.1f A'),
-            Reg_u32b(40, '/Ac/Out/L1/P',     10, '%.1f W'),
-            Reg_u16(37, '/Ac/Frequency',        100, '%.1f Hz'),
-            Reg_u32b(35, '/Ac/Power',            10, '%.1f W'),
+            Reg_u32b(35, '/Ac/Power',                 10, '%.1f W'),
+            Reg_u16(39,  '/Ac/Current',               10, '%.1f A'),
+            Reg_u16(38,  '/Ac/Voltage',               10, '%.1f V'),
+            Reg_u32b(55, '/Ac/Energy/Forward',        10, '%.1f kWh'),
+            Reg_u16(39,  '/Ac/L1/Current',            10, '%.1f A'),
+            Reg_u32b(35, '/Ac/L1/Power',              10, '%.1f W'),
+            Reg_u32b(53, '/Ac/L1/Energy/Forward',     10, '%.1f kWh'),
+            Reg_u16(38,  '/Ac/L1/Voltage',            10, '%.1f V'),
+            Reg_u16(105, '/ErrorCode'),
+            Reg_u16(93, '/Internal/InverterTemp',      10, '%.1f C'),
+            Reg_u16(94, '/Internal/IPMTemp',      10, '%.1f C'),
+            Reg_u16(95, '/Internal/BoostTemp',      10, '%.1f C'),
+
+            # Victron values
+            # 0=Startup 0; 
+            # 1=Startup 1; 
+            # 2=Startup 2; 3=Startup
+            # 3; 4=Startup 4; 5=Startup 5; 6=Startup 6; 7=Running;
+            # 8=Standby; 9=Boot loading; 10=Error
+            Reg_mapu16(0, '/StatusCode', {
+                0: 0, # waiting
+                1: 7, # normal
+                2: 10, # fault
+            })
         ]
 
         
         for n in range(0, self.nr_trackers):
             regs += self.tracker_regs(n)
 
-        log.info('Setup all registers %s',regs);
-
         self.data_regs = regs
 
     def get_ident(self):
-        return 'cg_%s' % self.info['/Serial']
+        return 'pv_%s' % self.info['/Serial']
 
 
 # Mode codes are listed on page 58 (footote &*5) 
@@ -186,6 +187,16 @@ models = {
         'handler':  GrowattPVInverter,
     },
 }
+
+
+class ForcedModelRegister(probe.ModelRegister):
+
+    
+    def probe(self, spec, modbus, timeout=None):
+        log.info(f'Force Growatt Device active')
+        # assume it is there, and let the code handle failures and retries when its up.
+        return GrowattPVInverter(spec, modbus, 'Growatt MIN 4200-TL')
+
 # 5100 = 0x13EC
 # Baud rate is set through holding register 22, however other devices may not be able to run on 
 # higher rates.

@@ -37,7 +37,6 @@ class ModbusExtras:
             self.in_transaction = False
 
     def read_registers(self, address, count, access, **kwargs):
-        log.info('Read Register Type:%s reg:%d count:%d ', access, address, count)
         if access == 'holding':
             return self.read_holding_registers(address, count, **kwargs)
 

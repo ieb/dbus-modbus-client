@@ -13,7 +13,9 @@ import time
 import traceback
 from gi.repository import GLib
 
+print(f'{sys.path}')
 sys.path.insert(1, os.path.join(os.path.dirname(__file__), 'ext', 'velib_python'))
+print(f'{sys.path}')
 from settingsdevice import SettingsDevice
 from vedbus import VeDbusService
 
@@ -54,7 +56,7 @@ FAIL_TIMEOUT = 5
 FAILED_INTERVAL = 10
 MDNS_CHECK_INTERVAL = 5
 MDNS_QUERY_INTERVAL = 60
-SCAN_INTERVAL = 600
+SCAN_INTERVAL = 60
 UPDATE_INTERVAL = 100
 
 if_blacklist = [
@@ -97,17 +99,21 @@ class Client:
         devices = self.scanner.get_devices()
 
         for d in devices:
+            # remove devices that are already active
             if d in self.devices:
                 d.destroy()
                 continue
 
+            # try to initialise new devices
             try:
+                log.info(f'Try init on {d}')
                 self.init_device(d, False)
                 self.devices.append(d)
             except:
                 log.info('Error initialising %s, skipping', d)
                 traceback.print_exc()
 
+        # save devices found
         self.save_devices()
 
     def scan_complete(self):
@@ -130,6 +136,7 @@ class Client:
         dev.nosave = nosave
 
     def del_device(self, dev):
+        log.info(f'delete device {dev}')
         self.devices.remove(dev)
         dev.destroy()
 
@@ -156,11 +163,15 @@ class Client:
         devs = set(devlist) - set(self.devices)
         devs, failed = probe.probe(devs, filt=self.probe_filter)
 
+
+
         for d in devs:
             try:
+                log.info(f'Init {d} in probe_devices')
                 self.init_device(d, nosave, enable)
                 self.devices.append(d)
             except:
+                log.info(f'Init Failed {d} in probe_devices')
                 failed.append(d.spec)
                 d.destroy()
 
@@ -170,9 +181,11 @@ class Client:
         devs = list(filter(lambda d: not d.nosave, self.devices))
         devstr = ','.join(sorted(map(str, devs + self.failed)))
         if devstr != self.settings['devices']:
+            log.info(f'saving devices {devstr} ')
             self.settings['devices'] = devstr
 
     def update_devlist(self, old, new):
+        log.info(f'Update device list old:{old} new:{new}')
         old = devspec.fromstrings(filter(None, old.split(',')))
         new = devspec.fromstrings(filter(None, new.split(',')))
         cur = set(self.devices)
@@ -203,10 +216,27 @@ class Client:
         self.settings = SettingsDevice(self.dbusconn, SETTINGS,
                                        self.setting_changed, timeout=10)
 
-    def init_devices(self, force_scan):
-        self.update_devlist('', self.settings['devices'])
+    def init_devices(self, force_scan, force_devices=None):
+        """
+        If force_devices is not set then the device list which includes 
+        protocol, port, and unit in comma seperated segments whill be read
+        from devices. 
+
+        If force_devices is set, it will be used.
+
+        update dev list performs a probe, which removes devices that cant be seen, and 
+        only those are scanned.
+
+        """
+        if force_devices is None:
+            self.update_devlist('',self.settings['devices'])
+        else:
+            log.info(f'Forcing devices to {force_devices}')
+            self.update_devlist(force_devices,force_devices)
+
 
         if not self.keep_failed:
+            log.info(f'Not keeping failed devices {self.failed}')
             self.failed = []
 
         scan = force_scan
@@ -217,11 +247,13 @@ class Client:
 
         if scan:
             self.start_scan(force_scan)
+        else:
+            log.info(f'not starting scan after init devices')
 
-    def init(self, force_scan):
+    def init(self, force_scan, force_devices=None):
         self.watchdog.start()
         self.init_settings()
-        self.init_devices(force_scan)
+        self.init_devices(force_scan, force_devices=force_devices)
 
     def update(self):
         if self.scanner:
@@ -233,6 +265,7 @@ class Client:
             self.scan_update()
 
             if not self.scanner.running:
+                log.info(f'Done scanning')
                 self.scan_complete()
                 self.scanner = None
                 if self.svc:
@@ -250,6 +283,7 @@ class Client:
 
             if self.settings['autoscan']:
                 if now - self.scan_time > SCAN_INTERVAL:
+                    # rescan every 10m
                     self.start_scan()
 
         self.watchdog.update()
@@ -345,7 +379,11 @@ class SerialClient(Client):
         self.rate = rate
         self.mode = mode
         self.auto_scan = True
-        self.keep_failed = False
+        # set to true to rescan the bus periodically so that when 
+        # a device sleeps it can be reactivated when it wakes up.
+        # same behavior as with the net client.
+        # may need to add more overrides here.
+        self.keep_failed = True 
 
     def new_scanner(self, full):
         return SerialScanner(self.tty, self.rate, self.mode, full=full)
@@ -391,6 +429,7 @@ def main():
     parser.add_argument('-d', '--debug', help='enable debug logging',
                         action='store_true')
     parser.add_argument('-f', '--force-scan', action='store_true')
+    parser.add_argument('-F', '--force-devices')
     parser.add_argument('-m', '--mode', choices=['ascii', 'rtu'], default='rtu')
     parser.add_argument('--models', action='store_true',
                         help='List supported device models')
@@ -433,7 +472,8 @@ def main():
 
     client.err_exit = args.exit
     log.info("Force Scan is %s ", args.force_scan)
-    client.init(args.force_scan)
+    log.info("Force Devices is %s ", args.force_devices)
+    client.init(args.force_scan, force_devices=args.force_devices)
 
     GLib.timeout_add(UPDATE_INTERVAL, client.update_timer)
     mainloop.run()

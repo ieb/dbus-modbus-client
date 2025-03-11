@@ -19,6 +19,12 @@ class ScanAborted(Exception):
     pass
 
 class Scanner:
+    """
+    Scanner scan the bus finding devices.
+    The scan runs in its own thread as a daemon.
+    It runs once and then stops.
+    It collects devices which can be retrieved later.
+    """
     def __init__(self):
         self.devices = []
         self.running = None
@@ -162,7 +168,9 @@ class SerialScanner(Scanner):
         return d[0]
 
     def scan(self):
+        # get all the defined units of all of the device types
         units = probe.get_units(self.mode)
+        # get all the baud rates 
         rates = self.rates or probe.get_rates(self.mode)
 
         for r in rates:
@@ -175,6 +183,7 @@ class SerialScanner(Scanner):
         if not self.full:
             return
 
+        # if nothing found perform a full scan of all rates, this is slow.
         units = set(range(MODBUS_UNIT_MIN, MODBUS_UNIT_MAX + 1)) - \
             set(d.unit for d in found)
 

@@ -39,6 +39,7 @@ class Eastron_SDM230v2(device.EnergyMeter):
     vendor_name = 'Eastron'
     min_timeout = 0.5
     phaseconfig = '1P'
+    default_access = 'input'
 
     def __init__(self, *args):
         super(Eastron_SDM230v2, self).__init__(*args)

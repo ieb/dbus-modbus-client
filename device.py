@@ -2,6 +2,7 @@ import dbus
 from functools import partial
 import logging
 import os
+import sys
 import time
 import traceback
 
@@ -11,6 +12,9 @@ from vedbus import VeDbusService, VeDbusItemImport, ServiceContext
 import __main__
 from register import Reg
 from utils import *
+
+import logging
+log = logging.getLogger()
 
 class RegList(list):
     def __init__(self, access=None, regs=[]):
@@ -53,7 +57,25 @@ def pack_list(rr, access, hole_max, barrier):
 
     return regs
 
+
+def printTraceBack():
+    tb = None
+    depth = 0
+    while True:
+        try:
+            frame = sys._getframe(depth)
+            depth += 1
+        except ValueError as exc:
+            break
+
+        log.error(f'{tb}, {frame}, {frame.f_lasti}, {frame.f_lineno}')
+
+
 class BaseDevice:
+    """
+    Base class for defices, contains most of the interaction with the 
+    dbus and modbus but does not specify which.
+    """
     vendor_id = None
     vendor_name = None
     device_type = None
@@ -88,6 +110,13 @@ class BaseDevice:
             self.settings = None
 
     def pack_regs(self, regs):
+        """
+        Packs the supplied registers into a more efficient sequence
+        that reduces traffic on the bus.
+        It will also set the default access mechanism if not present, 
+        although there is a suspected bug here since only the first 
+        register gets the right value when set
+        """
         if self.reg_hole_max is not None:
             hole_max = self.reg_hole_max
         else:
@@ -109,6 +138,7 @@ class BaseDevice:
         if access is None:
             access = self.default_access
 
+        log.debug(f'Read from Register unit:{self.unit} {access} start:{start} count:{count}')
         return self.modbus.read_registers(start, count, access, unit=self.unit)
 
     def read_register(self, reg):
@@ -170,6 +200,9 @@ class BaseDevice:
             self.read_info_regs(self.info)
 
     def init_device_settings(self, dbus):
+        """
+        Sets up necessary device settings including the VRM class instance.
+        """
         if self.settings:
             return
 
@@ -191,6 +224,9 @@ class BaseDevice:
             self.role = role
 
     def setting_changed(self, name, old, new):
+        """
+        Called when a device setting changes.
+        """
         if self.dbus and name in self.dbus_settings:
             self.dbus[self.dbus_settings[name]] = new
 
@@ -210,6 +246,9 @@ class BaseDevice:
         return False
 
     def add_settings(self, settings):
+        """
+        Adds a new setting
+        """
         for s in settings.values():
             if not s[0].startswith('/Settings/'):
                 s[0] = self.settings_path + s[0]
@@ -235,6 +274,9 @@ class BaseDevice:
                            onchangecallback=cb)
 
     def get_role_instance(self, retry=True):
+        """
+        Get the role of he instance from settings.
+        """
         try:
             val = self.settings['instance'].split(':')
             return val[0], int(val[1])
@@ -254,6 +296,9 @@ class BaseDevice:
         return True
 
     def dbus_write_register(self, reg, path, val):
+        """
+        Update dbus registers
+        """
         try:
             val = get_super(Reg, reg)(val)
 
@@ -276,6 +321,9 @@ class BaseDevice:
         return False
 
     def dbus_add_register(self, r, name=None):
+        """
+        Add a dbus register, replacing a a previous copy if present
+        """
         if name is None:
             name = r.name
 
@@ -301,12 +349,24 @@ class BaseDevice:
         self.dbus[name] = reg.copy_if_valid()
 
     def set_max_age(self, reg):
+        """
+        Set the maximum age of a register that has not been updated.
+        """
         if reg.name in self.fast_regs:
             reg.max_age = self.age_limit_fast
         else:
             reg.max_age = self.age_limit
 
     def init_dbus(self):
+        """
+        INitialise the dbus, this will create a new dbus client starting 
+        with com.vitronenergy.<role>.<ident>
+        It will then add all the mandatory paths that required and 
+        mark the instance as connected. 
+        If the instance has allowed roles it will add them
+        It will set a refresh time if defined and add all info registers.
+
+        """
         ident = self.get_ident()
 
         svcname = 'com.victronenergy.%s.%s' % (self.role, ident)
@@ -336,6 +396,9 @@ class BaseDevice:
             self.dbus_add_register(self.info[p])
 
     def init_data_regs(self):
+        """
+        Adds the data registers after packing them
+        """
         self.data_regs = self.pack_regs(self.data_regs)
 
         for r in self.data_regs:
@@ -346,6 +409,11 @@ class BaseDevice:
                     self.dbus_add_register(rr)
 
     def update_data_regs(self):
+        """
+        Reads all the data registers from the mobus client
+        Note these may have been packed into groups to reduce
+        modbus traffic volumes.
+        """
         latency = []
 
         for r in self.data_regs:
@@ -358,10 +426,14 @@ class BaseDevice:
     def post_update(self):
         self.dbus.flush()
 
+
+
     def device_init(self):
+        """ hook """
         pass
 
     def device_init_late(self):
+        """ hook """
         pass
 
     def get_unique(self):
@@ -405,6 +477,9 @@ class ModbusDevice(BaseDevice):
         return str(self.spec)
 
     def connection(self):
+        """
+        Returns a string representing the modbus connection details.
+        """
         if self.modbus.method == 'tcp':
             return 'Modbus %s %s' % (self.modbus.method.upper(),
                                      self.modbus.socket.getpeername()[0])
@@ -418,6 +493,11 @@ class ModbusDevice(BaseDevice):
         return 'Modbus'
 
     def init_device_settings(self, dbus):
+        """
+        gets the device setting from the bus, and marks the 
+        device as enabled in settings if enabled by force on the command
+        line, otherwise uses the value in settings.
+        """
         if self.settings:
             return
 
