@@ -19,6 +19,33 @@ Then you can run on the command line locally.
 
 To install properly follow the instructions in the wiki document.
 
+Installed as a seperate service in /data not using serial-starter, since in general I want more control over when and how it starts.
+
+# How does the driver work ?
+
+Quick notes....
+
+The driver is the Victron dbus-modbus-client driver with modification. It took me a while to work 
+out how it worked as the code has minimal documentation other than the code, fair enough, but
+harder to grasp without intent. The process starts as either a serial or network connected 
+process. It will only connect to a single serial port at a time. It looks like the code is now 
+favors TCP connections over serial, but serial does work. They behave differently. By default 
+the serial code probes modbus on serial with the units as configured in each driver and the baud 
+rate configured. As it detects modbus servers, it adds the device to a list of active devices. It 
+also adds the failed devices to a list of failed devices. Once that is done it starts all the 
+active devices and throws away the failed one, recording the state in dbus settings. The server 
+then runs with each device monitoring its target server updating the dbus as per the api.  If a 
+device should fail, it will be added to a list of failed devices and re-probing is attempted 
+every 10m for the failed devices. This works provided all the devices are present when the GX 
+starts, otherwise the device will never be added. This code base is modified not to throw away 
+failed devices on the intial startup, and only those devices that are known to be on the bus are 
+imported into the client. Hopefully, this will mean when the sun goes down, the inverters show as 
+zero energy but are still marked as present. More fixes needed probably.
+
+The devices themselves create a list of info registers that are queried on startup, and a list of 
+data registers. The data registers are packed to minimize rtu traffic and then called on each 
+update loop from the update call in the main driver. Not all register sets are queried every loop.
+
 # Discoveries
 
 There is an assumption by Victron that a PV String charges a battery, which is wrong where the 
@@ -28,7 +55,21 @@ with PV strings added as custom fields.
 
 Converting from multi to pvinverter works, but the PV string information is lost. This is currently being added under an /internal path so that its not picked up by the gui. As far as I can tell this is not sent to the VRM and is only visible on the detail of the dbus under debug in teh gui.
 
-The modbus client driver was written with the assumption that all devices on a single RTU serial port would be responding. On startup it scans the last known configured set of units, only activates those found and saves them. By default the RTU client does not run a re-scan on failed devices, fixed by setting rescan to true on the SerialClient. This seems to cause the update loop in the service to restart the scanner every 600s. 
+The modbus client driver was written with the assumption that all devices on a single RTU serial port would be responding. On startup it scans the last known configured set of units, only activates those found and saves them. By default the RTU client does not run a re-scan on failed devices, fixed by setting rescan to true on the SerialClient. This seems to cause the update loop in the service to restart the scanner every 600s. Also failed devices must be kept for this to happen.
+
+    @@ -345,7 +377,11 @@ class SerialClient(Client):
+             self.rate = rate
+             self.mode = mode
+             self.auto_scan = True
+    -        self.keep_failed = False
+    +        # set to true to rescan the bus periodically so that when 
+    +        # a device sleeps it can be reactivated when it wakes up.
+    +        # same behavior as with the net client.
+    +        # may need to add more overrides here.
+    +        self.keep_failed = True 
+
+Some files from the GX device had to be added to make the code work when relocated. settingsdevice.py, vedbus.py, and ve_utils.py. Hopefully thats ok. 
+
 
 
 # TODO
@@ -39,7 +80,7 @@ The modbus client driver was written with the assumption that all devices on a s
 [x] Try and add missing data from the SDM230 to the dbus
 [ ] Connect a p8s exporter to the dbus for more detailed monitoring via Grafana Cloud.
 [ ] Allow control of the PV inverter via VRM.
-[ ] Find a way of the driver continuing to work when the Growatt goes to sleep at night - made SerialClient run a rescan operation.
+[ ] Find a way of the driver continuing to work when the Growatt goes to sleep at night - made SerialClient run a rescan operation and keep failed devices in the list to be retried
 
 
 ## VregLink
