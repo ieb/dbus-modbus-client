@@ -16,7 +16,7 @@ import __main__
 from register import Reg
 from utils import *
 
-log = logging.getLogger()
+log = logging.getLogger(__name__)
 
 class ModbusDevice(device.ModbusDevice):
     min_timeout = 0.1

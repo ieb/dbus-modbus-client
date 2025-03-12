@@ -19,7 +19,7 @@ from register import *
 import time
 
 import logging
-log = logging.getLogger()
+log = logging.getLogger(__name__)
 
 DERATE_MODE = {
     0: 'None',

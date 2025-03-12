@@ -7,7 +7,7 @@ from pymodbus.client.sync import *
 from pymodbus.utilities import computeCRC
 
 import logging
-log = logging.getLogger()
+log = logging.getLogger(__name__)
 
 class ModbusExtras:
     def __init__(self, *args, **kwargs):

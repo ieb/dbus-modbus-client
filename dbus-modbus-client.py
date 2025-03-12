@@ -13,9 +13,7 @@ import time
 import traceback
 from gi.repository import GLib
 
-print(f'{sys.path}')
 sys.path.insert(1, os.path.join(os.path.dirname(__file__), 'ext', 'velib_python'))
-print(f'{sys.path}')
 from settingsdevice import SettingsDevice
 from vedbus import VeDbusService
 
@@ -27,21 +25,12 @@ from scan import *
 from utils import *
 import watchdog
 
-# while developing only enable the client to be tested
-#import abb
-#import carlo_gavazzi
-#import comap
-#import cre
-#import deif
-#import dse
-#import ev_charger
-#import smappee
-#import victron_em
+# Only enable the devices known to be present
 import eastron_sdm230
 import growatt_pv_v120
 
 import logging
-log = logging.getLogger()
+log = logging.getLogger(__name__)
 
 NAME = os.path.basename(__file__)
 VERSION = '1.62'
@@ -441,7 +430,7 @@ def main():
 
     args = parser.parse_args()
 
-    logging.basicConfig(format='%(levelname)-8s %(message)s',
+    logging.basicConfig(format='%(asctime)s %(levelname)s %(name)-10s %(message)s',
                         level=(logging.DEBUG if args.debug else logging.INFO))
 
     logging.getLogger('pymodbus.client.sync').setLevel(logging.CRITICAL)

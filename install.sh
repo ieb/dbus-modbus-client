@@ -14,8 +14,8 @@ cat > /data/rc.local << EOF
 /opt/victronenergy/serial-starter/stop-tty.sh ttyUSB2
 echo "Disabled serial starter on ttyUSB0,1,2"
 
-ln -s /data/dbus-mymodbus-client /service/dbus-mymodbus-client
-
+ln -s /data/dbus-mymodbus-client/service /service/dbus-mymodbus-client
+echo "Enabled dbus-mymodbus-client"
 
 EOF
 

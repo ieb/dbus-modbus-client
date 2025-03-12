@@ -14,7 +14,7 @@ from register import Reg
 from utils import *
 
 import logging
-log = logging.getLogger()
+log = logging.getLogger(__name__)
 
 class RegList(list):
     def __init__(self, access=None, regs=[]):

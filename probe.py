@@ -5,7 +5,7 @@ import time
 import client
 import utils
 
-log = logging.getLogger()
+log = logging.getLogger(__name__)
 
 device_types = []
 
@@ -34,7 +34,7 @@ def probe(mlist, pr_cb=None, pr_interval=10, timeout=None, filt=None):
 
             try:
                 for u in units:
-                    log.info('Probing %s unit:%d', m, u)
+                    log.debug('Probing %s unit:%d', m, u)
                     mm = m._replace(unit=u)
 
                     if filt and not filt(mm):
@@ -49,7 +49,7 @@ def probe(mlist, pr_cb=None, pr_interval=10, timeout=None, filt=None):
                 break
 
             if d:
-                d.log.info('Found %s: %s %s',
+                log.info('Found %s: %s %s',
                            d.device_type, d.vendor_name, d.model)
                 d.latency = t1 - t0
                 d.timeout = max(d.min_timeout, d.latency * 4)
@@ -111,7 +111,7 @@ class ModelRegister:
                 raise Exception('connection error')
 
             for acs in self.access:
-                log.info("Read from Register %s %d", acs, self.reg.base, )
+                log.debug("Read from Register %s %d", acs, self.reg.base, )
                 rr = modbus.read_registers(self.reg.base, self.reg.count,
                                            acs, unit=spec.unit)
                 if not rr.isError():
@@ -120,15 +120,15 @@ class ModelRegister:
         if rr.isError():
             log.debug('%s: Received error %s', modbus, rr)
             return None
-        log.info('Good response, decoding ')
+        log.debug('Good response, decoding ')
         try:
             self.reg.decode(rr.registers)
             log.info(' Detected ID:%d mapped:%s', self.reg.value, self.models[self.reg.value])
             m = self.models[self.reg.value]
             return m['handler'](spec, modbus, m['model'])
         except Exception as err:
-            print(f"Unexpected {err=}, {type(err)=}")
-            log.info(' Failed decode')
+            log.debug(f"Unexpected {err=}, {type(err)=}")
+            log.debug(' Failed decode')
             return None
 
     def get_models(self):

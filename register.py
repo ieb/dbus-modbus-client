@@ -3,7 +3,7 @@ import struct
 from utils import get_enum
 from collections.abc import Iterable
 import logging
-log = logging.getLogger()
+log = logging.getLogger(__name__)
 
 class Reg:
     def __new__(cls, *args, **kwargs):

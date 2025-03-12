@@ -19,7 +19,7 @@ import eastron_device as device
 import probe
 from register import *
 
-log = logging.getLogger()
+log = logging.getLogger(__name__)
 
 
 
@@ -32,7 +32,7 @@ class Reg_f32b(Reg_num):
         
 
 
-class Eastron_SDM230v2(device.EnergyMeter):
+class Eastron_SDM230v2(device.EnergyMeter,device.CustomName):
     productid = 0xB023 # id assigned by Victron Support... not sure how this works, cant find any documentation.
     productname = 'Eastron SDM230-Modbus v2'
     device_type = 'EnergyMeter'
