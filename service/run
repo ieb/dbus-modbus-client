@@ -1,4 +1,4 @@
 #!/bin/sh
 echo "*** starting dbus-mymodbus-client ***"
 exec 2>&1
-exec /data/dbus-mymodbus-client/dbus-modbus-client.py -x -s /dev/ttyUSB0
+exec /data/dbus-mymodbus-client/dbus-modbus-client.py -x -s /dev/ttyUSB0 -F rtu:ttyUSB0:9600:1,rtu:ttyUSB0:9600:2

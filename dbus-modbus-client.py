@@ -159,8 +159,9 @@ class Client:
                 log.info(f'Init {d} in probe_devices')
                 self.init_device(d, nosave, enable)
                 self.devices.append(d)
-            except:
+            except Exception as err:
                 log.info(f'Init Failed {d} in probe_devices')
+                log.info(f'Cause {err}')
                 failed.append(d.spec)
                 d.destroy()
 

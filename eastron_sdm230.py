@@ -15,7 +15,7 @@
 # Added correct device and vendor names.
 
 import logging
-import eastron_device as device
+import device
 import probe
 from register import *
 
@@ -40,6 +40,10 @@ class Eastron_SDM230v2(device.EnergyMeter,device.CustomName):
     min_timeout = 0.5
     phaseconfig = '1P'
     default_access = 'input'
+    allowed_roles = ['grid', 'pvinverter', 'genset', 'acload']
+    default_role = 'grid'
+    default_instance = 40
+    nr_phases = None
 
     def __init__(self, *args):
         super(Eastron_SDM230v2, self).__init__(*args)
@@ -50,6 +54,14 @@ class Eastron_SDM230v2(device.EnergyMeter,device.CustomName):
             Reg_u16( 0xfc03, '/FirmwareVersion', access='holding'),   # 630 and 120 use this location.
             Reg_u32b( 0xfc00, '/Serial', access='holding'),
         ]
+
+
+    def device_init_late(self): 
+        super().device_init_late()
+        #https://github.com/victronenergy/dbus_qwacs/blob/8c6c800f77edd528d7ae395aeea23485be6d8de5/pvinverter.cpp#L71
+        self.dbus.add_path('/Position', 0)  # Ac Input
+        self.dbus.add_path('/DeviceName','Eastron SDM230-Modbus v2')
+        self.dbus.add_path('/NrOfPhases',1)
 
     def phase_regs(self, n):
         s = 0x0002 * (n - 1)

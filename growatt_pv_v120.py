@@ -72,6 +72,8 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
     nr_phases = 1
     nr_trackers = 2
     default_access = 'input'
+    position = None
+
 
 
     def __init__(self, *args, **kwargs):
@@ -98,33 +100,22 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
         ]
 
 
-    def position_setting_changed(self, service, path, value):
-        self.dbus['/Position'] = value['Value']
-
-    def init_device_settings(self, dbus):
-        super().init_device_settings(dbus)
-
-        self.pos_item = None
-        if self.role == 'pvinverter':
-            self.pos_item = self.settings.addSetting(
-                self.settings_path + '/Position', 0, 0, 2,
-                callback=self.position_setting_changed)
 
 
-    def position_changed(self, path, val):
-        if not 0 <= val <= 2:
-            return False
-        self.pos_item.set_value(val)
-        return True
 
-    def device_init_late(self):
+    def device_init_late(self): 
         super().device_init_late()
-        
+
+
+        if self.role == 'pvinverter' and self.position is None:
+            self.add_settings({'position': ['/Position', 0, 0, 2]})
+            self.add_dbus_setting('position', '/Position')
+
+
         self.dbus.add_path('/DeviceName','GrowattPV MID4200TL')
         self.dbus.add_path('/NrOfPhases',1)
         self.dbus.add_path('/Ac/MaxPower','4200 W')
         self.dbus.add_path('/Ac/Phase',1)
-        self.dbus.add_path('/Position', 0)
         
 
     def tracker_regs(self, n):
@@ -165,7 +156,7 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
             # 8=Standby; 9=Boot loading; 10=Error
             Reg_mapu16(0, '/StatusCode', {
                 0: 0, # waiting
-                1: 7, # normal
+                1: 7, # normal running
                 2: 10, # fault
             })
         ]
