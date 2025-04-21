@@ -55,13 +55,66 @@ class Eastron_SDM230v2(device.EnergyMeter,device.CustomName):
             Reg_u32b( 0xfc00, '/Serial', access='holding'),
         ]
 
-
     def device_init_late(self): 
         super().device_init_late()
         #https://github.com/victronenergy/dbus_qwacs/blob/8c6c800f77edd528d7ae395aeea23485be6d8de5/pvinverter.cpp#L71
+
+
         self.dbus.add_path('/Position', 0)  # Ac Input
         self.dbus.add_path('/DeviceName','Eastron SDM230-Modbus v2')
         self.dbus.add_path('/NrOfPhases',1)
+
+
+        self.dbus.add_path('/exportEnergyActual',0)
+        self.dbus.add_path('/dynamicGenerationStatus','Not Configured')
+
+        log.info('Adding Energy Limit settings')
+        self.add_settings({
+            'energyDifference':       ['/Settings/DynamicGeneration/energyDifference',0,0,1000000],
+            'derateGeneration':      ['/Settings/DynamicGeneration/derateGeneration',0,0,1],
+            'forceDerateGeneration':      ['/Settings/DynamicGeneration/forceDerateGeneration',0,0,1],
+        })
+        if self.settings['energyDifference'] == 0:
+            self.settings['derateGeneration'] = 0
+            self.dbus['/dynamicGenerationStatus'] = 'Not Configured'
+        else:
+            self.settings['derateGeneration'] = 0
+            self.dbus['/dynamicGenerationStatus'] = 'Configured'
+
+
+    def device_update(self):
+        super().device_update()
+
+        energyDifferenceSetting = self.settings['energyDifference']
+        derateGeneration = self.settings['derateGeneration']        
+        # only implement single phase
+        importedEnergy = self.dbus['/Ac/L1/Energy/Forward']
+        exportedEnergy = self.dbus['/Ac/L1/Energy/Reverse']
+        energyDifference = float(importedEnergy) - float(exportedEnergy)
+        self.dbus['/exportEnergyActual'] = energyDifference
+
+
+        if energyDifferenceSetting > 0:
+            energyDifferenceOffset = energyDifference - (float)(energyDifferenceSetting)
+            if abs(energyDifferenceOffset) > 100:
+                log.error(f' energyDifference offset out of range offset:{energyDifferenceOffset} energyDifference:{energyDifference} energyDifferenceSetting:{energyDifferenceSetting} ')
+                self.dbus['/dynamicGenerationStatus'] = 'Out of range'
+            elif energyDifferenceOffset > 0:
+                self.dbus['/dynamicGenerationStatus'] = 'disabled'
+                if derateGeneration == 1:
+                    log.info(f'generation limit disabled energyDifference:{energyDifference} energyDifferenceSetting:{energyDifferenceSetting}')
+                    self.settings['derateGeneration'] = 0
+            elif energyDifferenceOffset < -2:
+                self.dbus['/dynamicGenerationStatus'] = 'enabled'
+                if derateGeneration == 0:
+                    log.info(f'generation limit enabled energyDifference:{energyDifference} energyDifferenceSetting:{energyDifferenceSetting} ')
+                    self.settings['derateGeneration'] = 1
+        elif derateGeneration == 1:
+            log.info('Setting defaults')
+            self.settings['derateGeneration'] = 0
+            self.dbus['/dynamicGenerationStatus'] = 'Not Configured'
+
+
 
     def phase_regs(self, n):
         s = 0x0002 * (n - 1)

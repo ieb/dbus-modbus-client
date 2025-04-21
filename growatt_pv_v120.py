@@ -21,17 +21,27 @@ import time
 import logging
 log = logging.getLogger(__name__)
 
+
+
+# could not get formatting to work, so gave up e16, mapu16 nothing seems to work 
 DERATE_MODE = {
-    0: 'None',
-    1: 'PV',
-    2: '*',
-    3: 'Vac',
-    4: 'Fac',
-    5: 'Tboost',
-    6: 'Tinv',
-    7: 'Control',
-    8: '*',
-    9: 'Overback'
+    0: 'cNOTDerate', 
+    1: 'cPVHighDerate',
+    2: 'cPowerConstantDerate', 
+    3: 'cGridVHighDerate',
+    4: 'cFreqHighDerate', 
+    5: 'cDcSoureModeDerate', 
+    6: 'cInvTemprDerate', 
+    7: 'cActivePowerOrder', 
+    8: 'cLoadSpeedProcess',
+    9: 'cOverBackbyTime', 
+    10: 'cInternalTemprDerate', 
+    11: 'cOutTemprDerate', 
+    12: 'cLineImpeCalcDerate', 
+    13: 'cParallelAntiBackflowDerate', 
+    14: 'cLocalAntiBackflowDerate', 
+    15: 'cBdcLoadPriDerate', 
+    16: 'cChkCTErrDerate',
     }
 EXPORT_LIMIT_TYPE = {
     0: 'Disable',
@@ -73,8 +83,8 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
     nr_trackers = 2
     default_access = 'input'
     position = None
-
-
+    derateGenerationBusItem = None
+    forceDerateGenerationBusItem = None
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -92,15 +102,18 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
             Reg_text( 12, 2, '/HardwareVersion', access='holding'),
             Reg_text( 9, 3, '/FirmwareVersion',  access='holding'),
             Reg_text( 209, 15, '/Serial',        access='holding'), 
-            Reg_u16(42, '/Internal/g100FailSafe',  1, '%.1f', access='holding'),
-            Reg_u16(104, '/Internal/DerateMode',   1, '%.1f', access='holding'),
-            Reg_u16(122, '/Internal/exportLimitType',           1, '%.1f', access='holding'),
-            Reg_u16(123, '/Internal/ExportLimitPowerRate',      10, '%.1f %%', access='holding'),
+            Reg_u16(42, '/Internal/g100FailSafe', 1, '%.1f', access='holding'),
             Reg_u16(3000, '/Internal/g100FailSafePowerRate',      10, '%.1f W', access='holding'),
         ]
 
 
-
+    def destroy(self):
+        if self.derateGenerationBusItem:
+            self.derateGenerationBusItem.__del__()
+            self.derateGenerationBusItem = None
+        if self.forceDerateGenerationBusItem:
+            self.forceDerateGenerationBusItem.__del__()
+            self.forceDerateGenerationBusItem = None
 
 
     def device_init_late(self): 
@@ -116,6 +129,51 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
         self.dbus.add_path('/NrOfPhases',1)
         self.dbus.add_path('/Ac/MaxPower','4200 W')
         self.dbus.add_path('/Ac/Phase',1)
+
+
+        log.info('registering setting watcher')
+        # references to the bus item must be kept for the notifications to fire.
+        self.derateGenerationBusItem = self.settings.addSetting('/Settings/DynamicGeneration/derateGeneration',0,0,1, callback=self.update_export_limit)
+        self.forceDerateGenerationBusItem = self.settings.addSetting('/Settings/DynamicGeneration/forceDerateGeneration',0,0,1, callback=self.force_export_limit)
+        self.derate = self.derateGenerationBusItem.get_value()
+        self.forceDerate = self.forceDerateGenerationBusItem.get_value()
+
+
+
+
+    def force_export_limit(self, serviceName, path, changes):
+        self.set_export_limit(self.derate, changes['Value'])
+
+    def update_export_limit(self, serviceName, path, changes):
+        self.set_export_limit(changes['Value'], self.forceDerate)
+
+    def set_export_limit(self, derate, forceDerate):
+        if forceDerate != self.forceDerate:
+            if forceDerate == 1 or derate == 1:
+                log.info(f'export Limit to 2%')
+                self.enable_ExportLimit(20)
+            elif derate == 0:
+                log.info(f'export Limit to 100%')
+                self.disable_ExportLimit();
+        elif forceDerate == 0 and derate != self.derate:
+            if derate == 1:
+                log.info(f'export Limit to 2%')
+                self.enable_ExportLimit(20)
+            else:
+                log.info(f'export Limit to 100%')
+                self.disable_ExportLimit();
+        self.derate = derate
+        self.forceDerate = forceDerate
+
+    def enable_ExportLimit(self, percent10):
+        self.write_register(Reg_u16(122, access='holding'), 3) # CT
+        self.write_register(Reg_u16(123, access='holding'), percent10) # 2%
+
+    def disable_ExportLimit(self):
+        self.write_register(Reg_u16(122, access='holding'), 0) # disable
+        self.write_register(Reg_u16(123, access='holding'), 1000) # 100%
+
+
         
 
     def tracker_regs(self, n):
@@ -147,7 +205,9 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
             Reg_u16(93, '/Internal/InverterTemp',      10, '%.1f C'),
             Reg_u16(94, '/Internal/IPMTemp',      10, '%.1f C'),
             Reg_u16(95, '/Internal/BoostTemp',      10, '%.1f C'),
-
+            Reg_u16(104, '/Internal/DerateMode',   1, '%.1f'),
+            Reg_u16(122, '/Internal/exportLimitType',           1, '%.1f', access='holding'),
+            Reg_u16(123, '/Internal/ExportLimitPowerRate',      10, '%.1f %%', access='holding'),
             # Victron values
             # 0=Startup 0; 
             # 1=Startup 1; 
@@ -166,6 +226,7 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
             regs += self.tracker_regs(n)
 
         self.data_regs = regs
+
 
     def get_ident(self):
         return 'pv_%s' % self.info['/Serial']

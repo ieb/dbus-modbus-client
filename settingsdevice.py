@@ -6,6 +6,8 @@ from functools import partial
 # Local imports
 from vedbus import VeDbusItemImport
 
+log = logging.getLogger(__name__)
+
 ## Indexes for the setting dictonary.
 PATH = 0
 VALUE = 1
@@ -36,7 +38,7 @@ class SettingsDevice(object):
 	# @param timeout Maximum interval to wait for localsettings. An exception is thrown at the end of the
 	# interval if the localsettings D-Bus service has not appeared yet.
 	def __init__(self, bus, supportedSettings, eventCallback, name='com.victronenergy.settings', timeout=0):
-		logging.debug("===== Settings device init starting... =====")
+		log.debug("===== Settings device init starting... =====")
 		self._bus = bus
 		self._dbus_name = name
 		self._eventCallback = eventCallback
@@ -50,13 +52,13 @@ class SettingsDevice(object):
 			if count == timeout:
 				raise Exception("The settings service com.victronenergy.settings does not exist!")
 			count += 1
-			logging.info('waiting for settings')
+			log.info('waiting for settings')
 			time.sleep(1)
 
 		# Add the items.
 		self.addSettings(supportedSettings)
 
-		logging.debug("===== Settings device init finished =====")
+		log.debug("===== Settings device init finished =====")
 
 	def addSettings(self, settings):
 		for setting, options in settings.items():
@@ -69,9 +71,9 @@ class SettingsDevice(object):
 	def addSetting(self, path, value, _min, _max, silent=False, callback=None):
 		busitem = VeDbusItemImport(self._bus, self._dbus_name, path, callback)
 		if busitem.exists and (value, _min, _max, silent) == busitem._proxy.GetAttributes():
-			logging.debug("Setting %s found" % path)
+			log.debug("Setting %s found" % path)
 		else:
-			logging.info("Setting %s does not exist yet or must be adjusted" % path)
+			log.info("Setting %s does not exist yet or must be adjusted, fixing that..." % path)
 
 			# Prepare to add the setting. Most dbus types extend the python
 			# type so it is only necessary to additionally test for Int64.
@@ -101,7 +103,6 @@ class SettingsDevice(object):
 
 		if self._eventCallback is None:
 			return
-
 		self._eventCallback(setting, oldvalue, changes['Value'])
 
 	def setDefault(self, path):

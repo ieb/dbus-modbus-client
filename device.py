@@ -153,8 +153,10 @@ class BaseDevice:
 
     def write_modbus(self, base, val):
         if len(val) == 1:
+            log.info(f'Write single register unit:{self.unit} {base} {val[0]}')
             self.modbus.write_register(base, val[0], unit=self.unit)
         else:
+            log.info(f'Write multi register unit:{self.unit} {base} {val}')
             self.modbus.write_registers(base, val, unit=self.unit)
 
     def write_register(self, reg, val):

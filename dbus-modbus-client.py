@@ -435,6 +435,7 @@ def main():
                         level=(logging.DEBUG if args.debug else logging.INFO))
 
     logging.getLogger('pymodbus.client.sync').setLevel(logging.CRITICAL)
+    logging.getLogger('pymodbus.protocol').setLevel(logging.DEBUG)
 
     if args.models:
         list_models()
