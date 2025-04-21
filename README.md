@@ -95,6 +95,10 @@ The devices themselves create a list of info registers that are queried on start
 data registers. The data registers are packed to minimize rtu traffic and then called on each 
 update loop from the update call in the main driver. Not all register sets are queried every loop.
 
+# Dynamic Generation limit setup
+
+In settings using dbus-spy set /Settings/DynamicGeneration/energyDifference to the desired difference between import and export. the SDM230 will then monitor the difference and set /Settings/DynamicGeneration/derateGeneration to 1 if the difference falls below the desired value. This should cause all generators to not export energy to the grid. When above, generators should stay withing the g100 setting dependent on installation. Generators should still meet any demand on the local supply.
+
 # Discoveries
 
 There is an assumption by Victron that a PV String charges a battery, which is wrong where the 
