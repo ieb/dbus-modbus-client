@@ -41,7 +41,8 @@ pymodbus.constants.Defaults.Timeout = 0.5
 
 MODBUS_TCP_PORT = 502
 
-FAIL_TIMEOUT = 5
+FAIL_TIMEOUT = 3600
+WARN_TIMEOUT = 600
 FAILED_INTERVAL = 10
 MDNS_CHECK_INTERVAL = 5
 MDNS_QUERY_INTERVAL = 60
@@ -66,6 +67,7 @@ class Client:
         self.auto_scan = False
         self.err_exit = False
         self.keep_failed = True
+        self.remove_failed_devices = False
         self.svc = None
         self.watchdog = watchdog.Watchdog()
 
@@ -122,6 +124,7 @@ class Client:
     def init_device(self, dev, nosave=False, enable=True):
         dev.init(self.dbusconn, enable)
         dev.last_seen = time.time()
+        dev.last_warn = time.time()
         dev.nosave = nosave
 
     def del_device(self, dev):
@@ -139,11 +142,13 @@ class Client:
             dev.last_seen = time.time()
         except Exception as ex:
             if time.time() - dev.last_seen > FAIL_TIMEOUT:
-                dev.log.info('Device failed: %s', ex)
-                if self.err_exit:
-                    os._exit(1)
-                self.dev_failed(dev)
-                self.del_device(dev)
+                if time.time() - dev.last_warn > WARN_TIMEOUT:
+                    dev.log.info('Device failed: %s', ex)
+                if self.remove_failed_devices:
+                    if self.err_exit:
+                        os._exit(1)
+                    self.dev_failed(dev)
+                    self.del_device(dev)
 
     def probe_filter(self, dev):
         return dev not in self.devices

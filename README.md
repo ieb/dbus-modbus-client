@@ -99,6 +99,8 @@ update loop from the update call in the main driver. Not all register sets are q
 
 In settings using dbus-spy set /Settings/DynamicGeneration/energyDifference to the desired difference between import and export. the SDM230 will then monitor the difference and set /Settings/DynamicGeneration/derateGeneration to 1 if the difference falls below the desired value. This should cause all generators to not export energy to the grid. When above, generators should stay withing the g100 setting dependent on installation. Generators should still meet any demand on the local supply.
 
+^^^^ doesnt work well for my Growatt which appears to simply set the power outout to the export limit and not charge batteries when derated. This may be a interaction between the inverter also sensing the grid power comming in which eventually confuses the growatt. So assuming that is the case, it will be better to look at if power is needed on the home AC and directly control the growatt output using events from the vebus service and grid meter service.
+
 # Discoveries
 
 There is an assumption by Victron that a PV String charges a battery, which is wrong where the 
@@ -124,6 +126,11 @@ The modbus client driver was written with the assumption that all devices on a s
 Some files from the GX device had to be added to make the code work when relocated. settingsdevice.py, vedbus.py, and ve_utils.py. Hopefully thats ok. 
 
 
+# Importing or watching other devices
+
+First thing to remember is that dbus is a rpc and event system. Reading a property is an rpc call which may block unless done async. Best to watch for updates. The updates only appear to fire on '/' and will only fire for a property when it changes on dbus. It was easiest to use patterns in the official python dbus support libs as they are less complicated to understand than Vebus wrappers https://gitlab.freedesktop.org/dbus/dbus-python/-/blob/master/examples/example-async-client.py
+
+VeDbusImport didnt work well. It blocked waiting for a event loop the constructor and didnt get anything in most cases. Watching for signals using a dbus proxy does work, and looking up available services by name also works. Remember that the dbus values must be converted to native values (eg float(dbusvalue)) to be usable in calculations.  It seems to be better to scan for the original device (eg the can dbus service connected to the battery, and the vebus service) rather than using the system service which has more latency.
 
 # TODO
 

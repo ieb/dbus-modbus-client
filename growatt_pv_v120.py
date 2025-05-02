@@ -15,8 +15,14 @@
 
 import device
 import probe
+import os
+import dbus
+import math
 from register import *
 import time
+from vedbus import weak_functor
+from utils import private_bus
+from ve_utils import unwrap_dbus_value
 
 import logging
 log = logging.getLogger(__name__)
@@ -67,6 +73,46 @@ class Reg_equalsu16(Reg_u16):
     def decode(self, values):
         return self.update(self.trueValue if values[0] == self.matchValue else self.falseValue)
 
+
+class BusItemTracker(object):
+    '''
+    Watches the dbus for changes to a single value on a service.
+    The value is available at .value, it will be None is no value is present
+    @param bus dbus object, session or system
+    @param serviceName  eg com.victronenergy.system
+    @param path path of the property eg /Ac/L1/Power
+    '''
+    def __init__(self, bus, serviceName,  path, onchange):
+        self._path = path
+        self._value = None
+        self._onchange = onchange
+        self._values = {}
+        self._match = bus.get_object(serviceName, path, introspect=False).connect_to_signal(
+            "ItemsChanged", self._items_changed_handler)
+        log.info(f' added tracker for  {serviceName} {path}')
+
+
+    def __del__(self):
+        self._match.remove()
+        self._match = None
+    
+    @property
+    def value(self):
+        return self._value
+    
+
+    # TODO, handle items being removed
+    def _items_changed_handler(self, items):
+        if not isinstance(items, dict):
+            return
+        for path, changes in items.items():
+            try:
+                self._values[str(path)] = unwrap_dbus_value(changes['Value'])
+            except KeyError:
+                continue
+        self._onchange(self._values)
+
+
 class GrowattPVInverter(device.ModbusDevice, device.CustomName):
     device_type = 'PV Inverter'
     role_names = ['pvinverter']
@@ -82,9 +128,17 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
     nr_phases = 1
     nr_trackers = 2
     default_access = 'input'
+    powerPercent = 101
     position = None
     derateGenerationBusItem = None
     forceDerateGenerationBusItem = None
+    gridTracker = None
+    systemTracker = None
+    vebusTracker = None
+    batteryTracker = None
+
+
+
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -102,8 +156,6 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
             Reg_text( 12, 2, '/HardwareVersion', access='holding'),
             Reg_text( 9, 3, '/FirmwareVersion',  access='holding'),
             Reg_text( 209, 15, '/Serial',        access='holding'), 
-            Reg_u16(42, '/Internal/g100FailSafe', 1, '%.1f', access='holding'),
-            Reg_u16(3000, '/Internal/g100FailSafePowerRate',      10, '%.1f W', access='holding'),
         ]
 
 
@@ -114,6 +166,34 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
         if self.forceDerateGenerationBusItem:
             self.forceDerateGenerationBusItem.__del__()
             self.forceDerateGenerationBusItem = None
+     
+        if self.gridTracker:
+            self.gridTracker.__del__()
+            self.gridTracker = None
+        if self.batteryTracker:
+            self.batteryTracker.__del__()
+            self.batteryTracker = None
+        if self.systemTracker != None:
+            self.systemTracker.__del__() 
+            self.systemTracker = None
+        if self.vebusTracker != None:
+            self.vebusTracker.__del__() 
+            self.vebusTracker = None
+        '''
+        if self.pvPowerTracker != None:
+            self.pvPowerTracker.__del__()
+            self.pvPowerTracker = None
+        if self.batteryPowerTracker != None:
+            self.batteryPowerTracker.__del__()
+            self.batteryPowerTracker = None
+        if self.batterySocTracker != None:
+            self.batterySocTracker.__del__()
+            self.batterySocTracker = None
+        '''
+
+    '''
+    '''
+
 
 
     def device_init_late(self): 
@@ -129,19 +209,258 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
         self.dbus.add_path('/NrOfPhases',1)
         self.dbus.add_path('/Ac/MaxPower','4200 W')
         self.dbus.add_path('/Ac/Phase',1)
+        self.dbus.add_path('/dynamicGenerationStatus','-',writeable=True)
+        self.dbus.add_path('/dynamicGenerationPower',0,writeable=True)
+        self.dbus.add_path('/dynamicGenerationMaxPower',0,writeable=True)
 
 
-        log.info('registering setting watcher')
-        # references to the bus item must be kept for the notifications to fire.
-        self.derateGenerationBusItem = self.settings.addSetting('/Settings/DynamicGeneration/derateGeneration',0,0,1, callback=self.update_export_limit)
-        self.forceDerateGenerationBusItem = self.settings.addSetting('/Settings/DynamicGeneration/forceDerateGeneration',0,0,1, callback=self.force_export_limit)
-        self.derate = self.derateGenerationBusItem.get_value()
-        self.forceDerate = self.forceDerateGenerationBusItem.get_value()
+
+        log.info('Adding Energy Limit settings')
+        self.add_settings({
+            'energyDifference':       ['/Settings/DynamicGeneration/energyDifference',0,0,1000000],
+            'derateGeneration':      ['/Settings/DynamicGeneration/derateGeneration',0,0,1],
+            'forceDerateGeneration':      ['/Settings/DynamicGeneration/forceDerateGeneration',0,0,1],
+        })
+        if self.settings['energyDifference'] == 0:
+            self.dbus['/dynamicGenerationStatus'] = 'Not Configured'
+        elif self.settings['derateGeneration'] == 0:
+            self.dbus['/dynamicGenerationStatus'] = 'Configured, disabled'
+        else:
+            self.dbus['/dynamicGenerationStatus'] = 'Configured, enabled'
+
+        # paths
+        # grid meter /Ac/Energy/Consumption
+        # system /Ac/Consumption/L1/Power   power requirement from house
+        # system /Ac/Grid/L1/Power  power from the grid
+        # system /Ac/PvOnGrid/L1/Power   power from PV
+        # system /Dc/Battery/Power power to Battery +ve == charging
+        # system /Dc/Battery/Soc state of charge 0-100
+        # system /Ac/In/0/ServiceName grid meter service name or scan for the device
+        self.state = {
+            'pv:/Ac/Power': 0,
+            'vebus:/Ac/Out/P': 0,
+            'grid:/Ac/Power': 0,
+            'vebus:/State': 0,
+            'vebus:/Ac/ActiveIn/P': 0,
+            'grid:/Ac/Energy/Consumption': 1000000000,
+            'battery:/Dc/0/Power': 0,
+            'battery:/Soc': 100,
+        }
+
+        self.createServiceTrackers()
+
+    def createServiceTrackers(self):
+        if (self.gridTracker == None 
+            or self.batteryTracker == None 
+            or self.systemTracker == None
+            or self.vebusTracker == None):
+            dbusConn = dbus.SessionBus() if 'DBUS_SESSION_BUS_ADDRESS' in os.environ else dbus.SystemBus()
+            dbusObjects = {}
+            dbusNames = dbusConn.list_names()
+            gridServiceName = None
+            batteryServiceName = None
+            for x in dbusNames:
+                s = str(x)
+                if s.startswith('com.victronenergy.grid'):
+                    gridServiceName = s
+                elif s.startswith('com.victronenergy.battery'):
+                    batteryServiceName = s
+                elif s.startswith('com.victronenergy.vebus'):
+                    vebusServiceName = s
+            log.info(f' grid service name {gridServiceName}')
+            log.info(f' battery service name {batteryServiceName}')
+            log.info(f' vebus service name {vebusServiceName}')
+
+            if (self.gridTracker == None 
+                and gridServiceName != None):
+                self.gridTracker = BusItemTracker(dbusConn, gridServiceName, '/', self.gridChanged)
+            if (self.batteryTracker == None
+                and batteryServiceName != None):
+                self.batteryTracker = BusItemTracker(dbusConn, batteryServiceName, '/', self.batteryChanged)
+            if (self.vebusTracker == None
+                and vebusServiceName != None):
+                self.vebusTracker = BusItemTracker(dbusConn, vebusServiceName, '/', self.vebusChanged)
+            if self.systemTracker == None:
+                self.systemTracker = BusItemTracker(dbusConn, 'com.victronenergy.system', '/', self.systemChanged)
+                  
+
+        '''
+        self.pvPowerTracker = BusItemTracker(dbusConn, 'com.victronenergy.system', '/Ac/PvOnGrid/L1/Power', self.pvPowerChanged)
+        self.batteryPowerTracker = BusItemTracker(dbusConn, 'com.victronenergy.system', '/Dc/Battery/Power', self.batteryPowerChanged)
+        self.batterySocTracker = BusItemTracker(dbusConn, 'com.victronenergy.system', '/Dc/Battery/Soc', self.batterySocChanged)
+        log.info(f'Creating power consumption')
+        self.consumptionPowerDI = VeDbusItemImport(dbusConn, gridServiceName, '/Ac/Energy/Consumption')
+        log.info(f' consumption')
+        
+        self.gridPowerDI = VeDbusItemImport(dbusConn, 'com.victronenergy.system', '/Ac/Grid/L1/Power')
+        self.pvPowerDI = VeDbusItemImport(dbusConn, 'com.victronenergy.system', '/Ac/PvOnGrid/L1/Power')
+        self.batteryPowerDI = VeDbusItemImport(dbusConn, 'com.victronenergy.system', '/Dc/Battery/Power')
+        self.batterySocDI = VeDbusItemImport(dbusConn, 'com.victronenergy.system', '/Dc/Battery/Soc')
+        log.info(f'Done Creating power consumption')
+      
+        '''
+
+    def updateIfDef(self, cls, key, source ):
+        if key in source:
+            self.state[f'{cls}:{key}'] = source[key]
+
+    def systemChanged(self, values):
+        self.updateIfDef('system', '/Ac/Grid/L1/Power', values)
+        self.updateIfDef('system', '/Ac/PvOnGrid/L1/Power', values)
+        self.updateIfDef('system', '/Dc/Battery/Power', values)
+        self.updateIfDef('system', '/Dc/Battery/Soc', values)
+        self.update_export()
+        ''' 
+                    gridPower = self.setIfDef(values,'/Ac/Grid/L1/Power'),
+                    pvPower = self.setIfDef(values,'/Ac/PvOnGrid/L1/Power'),
+                    batteryPower = self.setIfDef(values,'/Dc/Battery/Power'),
+                    batterySoc = self.setIfDef(values,'/Dc/Battery/Soc'))
+        '''
+
+    def gridChanged(self, values):
+        self.updateIfDef('grid', '/Ac/Energy/Consumption', values)
+        self.updateIfDef('grid', '/Ac/L1/Power', values)
+        self.updateIfDef('grid', '/Ac/Power', values)
+        self.update_export()
+
+    def batteryChanged(self, values):
+        self.updateIfDef('battery', '/Info/ChargeReqeust', values)
+        self.updateIfDef('battery', '/Dc/0/Power', values)
+        self.updateIfDef('battery', '/Soc', values)
+        self.update_export()
+
+    def vebusChanged(self, values):
+        self.updateIfDef('vebus', '/Ac/ActiveIn/L1/P', values)
+        self.updateIfDef('vebus', '/Ac/ActiveIn/P', values)
+        self.updateIfDef('vebus', '/Ac/Out/L1/P', values)
+        self.updateIfDef('vebus', '/Ac/Out/P', values)
+        self.updateIfDef('vebus', '/Bms/AllowToCharge', values)  # 0=No, 1=Yes
+        self.updateIfDef('vebus', '/Bms/AllowToDischarge', values) # 0=No, 1=Yes
+        self.updateIfDef('vebus', '/Dc/0/Power', values)
+        self.updateIfDef('vebus', '/Devices/0/Ac/In/P', values)
+        self.updateIfDef('vebus', '/Devices/0/Ac/Inverter/P', values)
+        self.updateIfDef('vebus', '/Devices/0/Ac/Out/P', values)
+        self.updateIfDef('vebus', '/Hub4/DisableCharge', values)
+        self.updateIfDef('vebus', '/Leds/Absorbtion', values)  # LEDs: 0 = Off, 1 = On, 2 = Blinking, 3 = Blinking inverted
+        self.updateIfDef('vebus', '/Leds/Bulk', values)
+        self.updateIfDef('vebus', '/Mode', values) # 1=Charger Only;2=Inverter Only;3=On;4=Off
+        self.updateIfDef('vebus', '/Soc', values)
+        self.updateIfDef('vebus', '/State', values) # 0=Off;1=Low Power Mode;2=Fault;3=Bulk;4=Absorption;5=Float;6=Storage;7=Equalize;8=Passthru;9=Inverting;10=Power assist;
+        self.updateIfDef('vebus', '/VeBusChargeState', values) #  1. Bulk 2. Absorption 3. Float 4. Storage 5. Repeat absorption 6. Forced absorption 7. Equalise 8. Bulk stopped
+        self.updateIfDef('vebus', '/VeBusMainState', values)
+        self.update_export()
+
+
+    def update_export(self ):
+        '''
+        After a few minutes of running this is the state that has been accumulated due to updates
+        state:{'grid:/Ac/Energy/Consumption': 3643.080078125, 
+        'grid:/Ac/L1/Power': 0.0, 
+        'grid:/Ac/Power': 0.0, 
+        'pv:/Ac/Power': 198.7, 
+        'pv:/Internal/ExportLimitPowerRate': 100.0, 
+        'vebus:/Ac/ActiveIn/L1/P': 67, 
+        'vebus:/Ac/Out/L1/P': 14, 
+        'vebus:/Ac/Out/P': 14, 
+        'vebus:/Dc/0/Power': 51, 
+        'vebus:/Devices/0/Ac/In/P': 67, 
+        'vebus:/Devices/0/Ac/Out/P': 14, 
+        'system:/Ac/Grid/L1/Power': 0.0,  << dup grid
+        'system:/Ac/PvOnGrid/L1/Power': 198.7, << dup pv
+        'vebus:/Devices/0/Ac/Inverter/P': 53, 
+        'vebus:/State': 3,   
+
+        0=Off;1=Low Power Mode;2=Fault;3=Bulk;4=Absorption;5=Float;
+                                           6=Storage;7=Equalize;8=Passthru;9=Inverting;10=Power assist;
+                                           11=Power supply mode;244=Sustain(Prefer Renewable Energy);252=External control
+
+        'vebus:/Leds/Bulk': 1, 
+        'system:/Dc/Battery/Power': 0  << static
+        }         } 
+
+        '''
+        # add local values to state
+        if '/Ac/Power' in self.dbus and self.dbus['/Ac/Power'] != None:
+            self.state['pv:/Ac/Power'] = float(self.dbus['/Ac/Power'])
+        if '/Internal/ExportLimitPowerRate' in self.dbus and self.dbus['/Internal/ExportLimitPowerRate'] != None:
+            self.state['pv:/Internal/ExportLimitPowerRate'] = float(self.dbus['/Internal/ExportLimitPowerRate'])
+        log.debug(f' state:{self.state} ')
+
+        # strategy
+        # there are 3 AC sources, grid, pv and home. Home always consumes, grid and pv supply.
+        # on the grid meter +power is importing from the grid.
+        # on the pv power +ve power is generating
+        # 
+        # power consumption is calculated  grid + pv + vebus active in 
+        # the inverter will vary to keep the grid at 0.
+        # if in a state where we need to limit output to the grid, then the pv power should be adjusted
+        # to provide as much power as required 
+        # pvlimit = pv + abs(vebus) + grid + 100
+        #
+        # 100 to ensure the pv output rises as the inverter takes more power
+        # power being consumed by house 
+        pvpower = self.state["pv:/Ac/Power"]
+        gridpower = self.state['grid:/Ac/Power']
+        inverterpower = self.state['vebus:/Ac/ActiveIn/P']
+        housepower = gridpower+pvpower-inverterpower
+
+        batteryPower = self.state['battery:/Dc/0/Power']
+        batterySoc = self.state['battery:/Soc']
+
+        pvlimit = housepower + inverterpower
+        if batteryPower > 0:
+            pvlimit = pvlimit + batteryPower
+        if batteryPower < -100:
+            pvlimit = pvlimit - batteryPower
+
+
+        log.debug(f'batteryPower:{batteryPower} batterySoc:{batterySoc}')
+        log.debug(f'pvlimit:{pvlimit} pv:{pvpower} g:{gridpower} i:{inverterpower} h:{housepower} s:{self.state["vebus:/State"]} ' )
+
+
+        if self.settings['energyDifference'] == 0:
+            self.dbus['/dynamicGenerationStatus'] = 'Not Configured'
+        elif self.settings['derateGeneration'] == 0:
+            self.dbus['/dynamicGenerationStatus'] = 'Configured, disabled'
+        elif batteryPower > 0 and batterySoc < 90:
+            if self.set_max_power(100):
+                self.dbus['/dynamicGenerationStatus'] = 'Configured, charging'
+        else:
+            energyDifferenceSetting = float(self.settings['energyDifference'])
+            consumption = self.state['grid:/Ac/Energy/Consumption']
+            energyDifferenceOffset = consumption - (float)(energyDifferenceSetting)
+            log.debug(f'energy difference {energyDifferenceOffset} {pvlimit} ')
+            if energyDifferenceOffset < -2 and energyDifferenceOffset > -200:
+                self.dbus['/dynamicGenerationPower'] = pvlimit
+                powerPercent = math.ceil(100*pvlimit/4200)
+                if powerPercent < 2:
+                    powerPercent = 2
+                if self.set_max_power(powerPercent):
+                    log.debug(f'setting limit to  {powerPercent} % for {pvlimit} W')
+                    self.dbus['/dynamicGenerationStatus'] = 'Configured, limiting'
+            else:
+                if self.set_max_power(100):
+                    self.dbus['/dynamicGenerationMaxPower'] = 4200
+                if abs(energyDifferenceOffset) > 200: 
+                    self.dbus['/dynamicGenerationStatus'] = 'Configured, out of range'
+                else:
+                    self.dbus['/dynamicGenerationStatus'] = 'Configured, not limiting'
+
+
+    def set_max_power(self, powerPercent):
+        if abs(self.powerPercent - powerPercent) > 1:
+            self.dbus['/dynamicGenerationMaxPower'] = powerPercent*4200/100
+            self.powerPercent = powerPercent
+            self.write_register(Reg_u16(3, access='holding'), powerPercent)
+            return True
+        return False
+
 
 
 
 
     def force_export_limit(self, serviceName, path, changes):
+
         self.set_export_limit(self.derate, changes['Value'])
 
     def update_export_limit(self, serviceName, path, changes):
@@ -206,8 +525,12 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
             Reg_u16(94, '/Internal/IPMTemp',      10, '%.1f C'),
             Reg_u16(95, '/Internal/BoostTemp',      10, '%.1f C'),
             Reg_u16(104, '/Internal/DerateMode',   1, '%.1f'),
+            Reg_u16(3, '/Internal/activePowerRate',           1, '%.1f', access='holding'),
             Reg_u16(122, '/Internal/exportLimitType',           1, '%.1f', access='holding'),
             Reg_u16(123, '/Internal/ExportLimitPowerRate',      10, '%.1f %%', access='holding'),
+            Reg_u16(42, '/Internal/g100FailSafe', 1, '%.1f', access='holding'),
+            Reg_u16(3000, '/Internal/g100FailSafePowerRate',      10, '%.1f W', access='holding'),
+
             # Victron values
             # 0=Startup 0; 
             # 1=Startup 1; 
