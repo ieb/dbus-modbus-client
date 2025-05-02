@@ -97,9 +97,23 @@ update loop from the update call in the main driver. Not all register sets are q
 
 # Dynamic Generation limit setup
 
-In settings using dbus-spy set /Settings/DynamicGeneration/energyDifference to the desired difference between import and export. the SDM230 will then monitor the difference and set /Settings/DynamicGeneration/derateGeneration to 1 if the difference falls below the desired value. This should cause all generators to not export energy to the grid. When above, generators should stay withing the g100 setting dependent on installation. Generators should still meet any demand on the local supply.
+The aim when active is to not export or import energy using both the battery and the inverter.
+It should be possible to use a CT clamp on the pvinvereter and tell it not to export, however
+they stop working over 20m of wire resulting in a CT Open warnng message. It is also possible 
+to use a SDM230 on the pvinvertre, but not if its being used already. I could create a fake SDM230
+inside the MultiPlus, but that would require another serial device. The solution I have settled on
+is to directly control the output of the pvinveter based on the grid meter, pvpower and battery power, setting the maximum output to the sum. However its not quite so simple as the battery wont charge unless there is spare power. So if the battery charge is < 90%, the pvinvreter is allowed to output full power. If > 90%, then the batterpower is added when charging and added when discharging at over 100W. This allows the MultiPlus to take control over the grid no export for the last 100W.
 
-^^^^ doesnt work well for my Growatt which appears to simply set the power outout to the export limit and not charge batteries when derated. This may be a interaction between the inverter also sensing the grid power comming in which eventually confuses the growatt. So assuming that is the case, it will be better to look at if power is needed on the home AC and directly control the growatt output using events from the vebus service and grid meter service.
+Using this approach the pvinverter tracks demand with about a 1s latency, provided there is sun. Demands over the pvoutput get served by the battery which typically starts to charge from the pvinverter when the demand goes.
+
+Paths
+
+pvinverter:/dynamicGenerationStatus text status
+pvinverter:/dynamicGenerationPower calculated instantaneous power demand
+pvinverter:/dynamicGenerationPowerMax pvinveerter max power setting (holding register 3)
+/Settings/DynamicGeneration/energyDifference minimum allowable difference between import and export, below this active tracking is activated, in kwh see the grid meter /Ac/Energy/Consumption value for the current value.
+/Settings/DynamicGeneration/derateGeneraton 1=enable, 0=disable
+
 
 # Discoveries
 

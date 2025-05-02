@@ -130,8 +130,6 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
     default_access = 'input'
     powerPercent = 101
     position = None
-    derateGenerationBusItem = None
-    forceDerateGenerationBusItem = None
     gridTracker = None
     systemTracker = None
     vebusTracker = None
@@ -160,12 +158,6 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
 
 
     def destroy(self):
-        if self.derateGenerationBusItem:
-            self.derateGenerationBusItem.__del__()
-            self.derateGenerationBusItem = None
-        if self.forceDerateGenerationBusItem:
-            self.forceDerateGenerationBusItem.__del__()
-            self.forceDerateGenerationBusItem = None
      
         if self.gridTracker:
             self.gridTracker.__del__()
@@ -219,7 +211,6 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
         self.add_settings({
             'energyDifference':       ['/Settings/DynamicGeneration/energyDifference',0,0,1000000],
             'derateGeneration':      ['/Settings/DynamicGeneration/derateGeneration',0,0,1],
-            'forceDerateGeneration':      ['/Settings/DynamicGeneration/forceDerateGeneration',0,0,1],
         })
         if self.settings['energyDifference'] == 0:
             self.dbus['/dynamicGenerationStatus'] = 'Not Configured'
