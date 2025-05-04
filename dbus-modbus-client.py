@@ -140,9 +140,11 @@ class Client:
         try:
             dev.update()
             dev.last_seen = time.time()
+            dev.last_warn = time.time()
         except Exception as ex:
             if time.time() - dev.last_seen > FAIL_TIMEOUT:
                 if time.time() - dev.last_warn > WARN_TIMEOUT:
+                    dev.last_warn = time.time()
                     dev.log.info('Device failed: %s', ex)
                 if self.remove_failed_devices:
                     if self.err_exit:

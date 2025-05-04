@@ -128,18 +128,19 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
     nr_phases = 1
     nr_trackers = 2
     default_access = 'input'
-    powerPercent = 101
-    position = None
-    gridTracker = None
-    systemTracker = None
-    vebusTracker = None
-    batteryTracker = None
 
 
 
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.maxPowerPercent = 0
+        self.maxPowerMovingAverage = 100
+        self.position = None
+        self.gridTracker = None
+        self.systemTracker = None
+        self.vebusTracker = None
+        self.batteryTracker = None
 
         # manufacturer information ascii in reg 34 count 8
         # Firmware acii reg 9 count 3
@@ -232,9 +233,14 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
             'vebus:/Ac/Out/P': 0,
             'grid:/Ac/Power': 0,
             'vebus:/State': 0,
+            'vebus:/Leds/Absorbtion': 0,
+            'vebus:/Leds/Bulk': 0,
+            'vebus:/Leds/Float': 0,
+            'vebus:/Leds/Inverter': 0,
             'vebus:/Ac/ActiveIn/P': 0,
             'grid:/Ac/Energy/Consumption': 1000000000,
             'battery:/Dc/0/Power': 0,
+            'battery:/Dc/0/Voltage': 55, # assume fully charged to start with, should update fast.
             'battery:/Soc': 100,
         }
 
@@ -315,9 +321,9 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
         self.update_export()
 
     def batteryChanged(self, values):
-        self.updateIfDef('battery', '/Info/ChargeReqeust', values)
         self.updateIfDef('battery', '/Dc/0/Power', values)
-        self.updateIfDef('battery', '/Soc', values)
+        self.updateIfDef('battery', '/Dc/0/Voltage', values)
+        self.updateIfDef('battery', '/Soc', values) # SOc changes slowly so not that usefull
         self.update_export()
 
     def vebusChanged(self, values):
@@ -325,8 +331,6 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
         self.updateIfDef('vebus', '/Ac/ActiveIn/P', values)
         self.updateIfDef('vebus', '/Ac/Out/L1/P', values)
         self.updateIfDef('vebus', '/Ac/Out/P', values)
-        self.updateIfDef('vebus', '/Bms/AllowToCharge', values)  # 0=No, 1=Yes
-        self.updateIfDef('vebus', '/Bms/AllowToDischarge', values) # 0=No, 1=Yes
         self.updateIfDef('vebus', '/Dc/0/Power', values)
         self.updateIfDef('vebus', '/Devices/0/Ac/In/P', values)
         self.updateIfDef('vebus', '/Devices/0/Ac/Inverter/P', values)
@@ -334,6 +338,8 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
         self.updateIfDef('vebus', '/Hub4/DisableCharge', values)
         self.updateIfDef('vebus', '/Leds/Absorbtion', values)  # LEDs: 0 = Off, 1 = On, 2 = Blinking, 3 = Blinking inverted
         self.updateIfDef('vebus', '/Leds/Bulk', values)
+        self.updateIfDef('vebus', '/Leds/Float', values)
+        self.updateIfDef('vebus', '/Leds/Inverter', values)  
         self.updateIfDef('vebus', '/Mode', values) # 1=Charger Only;2=Inverter Only;3=On;4=Off
         self.updateIfDef('vebus', '/Soc', values)
         self.updateIfDef('vebus', '/State', values) # 0=Off;1=Low Power Mode;2=Fault;3=Bulk;4=Absorption;5=Float;6=Storage;7=Equalize;8=Passthru;9=Inverting;10=Power assist;
@@ -390,47 +396,84 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
         #
         # 100 to ensure the pv output rises as the inverter takes more power
         # power being consumed by house 
-        pvpower = self.state["pv:/Ac/Power"]
-        gridpower = self.state['grid:/Ac/Power']
-        inverterpower = self.state['vebus:/Ac/ActiveIn/P']
+        pvpower = self.state["pv:/Ac/Power"]  # poutput of the pv array +ve == generating
+        gridpower = self.state['grid:/Ac/Power'] # grid power +ve == supply from the grid
+        inverterpower = self.state['vebus:/Ac/ActiveIn/P'] # input to the MP +ve == input
+        # power consumed by the house is grid + pv + inverter (which is sign inverted)
         housepower = gridpower+pvpower-inverterpower
 
         batteryPower = self.state['battery:/Dc/0/Power']
+        batteryVoltage = self.state['battery:/Dc/0/Voltage']
         batterySoc = self.state['battery:/Soc']
 
-        pvlimit = housepower + inverterpower
-        if batteryPower > 0:
-            pvlimit = pvlimit + batteryPower
+        # pv limit needs to power the house as if the inverter was switched off.
+        pvlimit = gridpower+pvpower
+
+
+
+
+        # now take into account the inverter and bms
+        veBusState = self.state["vebus:/State"]
+
+        # have seen states of 0,3,4, 0 when not set and when idle.
+        
+        # Not convinced this helps during charging.
+        # 
+        adjust = 0
+        if veBusState == 3 or self.state["vebus:/Leds/Absorbtion"] == 1:
+            # bulk, let power ramp up slowly, only appears on a change in state
+            adjust = 1
+            pvlimit = pvlimit + 20
+        elif veBusState == 4  or self.state["vebus:/Leds/Bulk"] == 1:
+            # bulk, let power ramp up slowly, only appears on a change in state
+            adjust = 2
+            pvlimit = pvlimit + 40
+        elif batteryPower > 0 and batteryPower < 3200:
+            adjust = 3
+            # the batery is charging, but it will only take availablw 
+            # energy so we must increase the pv limit to allow charging to ramp up
+            # one way is to increse the pv limit by 500W
+            # the BMS current limit is set to about 60A so above 3200W
+            # do not add additional power to the limit.
+            if batterySoc < 90 or batteryVoltage < 54.5:
+                adjust = 4
+                pvlimit = pvlimit + 500
+        
         if batteryPower < -100:
-            pvlimit = pvlimit - batteryPower
+            # The battery is discharging at more than 100W
+            # PV should try and replace this power, so add the power
+            # that the invereter is producing to th epv limit
+            pvlimit = pvlimit - inverterpower
 
 
         log.debug(f'batteryPower:{batteryPower} batterySoc:{batterySoc}')
-        log.debug(f'pvlimit:{pvlimit} pv:{pvpower} g:{gridpower} i:{inverterpower} h:{housepower} s:{self.state["vebus:/State"]} ' )
+        log.debug(f'pvlimit:{pvlimit} pv:{pvpower} g:{gridpower} i:{inverterpower} h:{housepower} s:{self.state["vebus:/State"]} a:{adjust}' )
 
 
         if self.settings['energyDifference'] == 0:
             self.dbus['/dynamicGenerationStatus'] = 'Not Configured'
         elif self.settings['derateGeneration'] == 0:
             self.dbus['/dynamicGenerationStatus'] = 'Configured, disabled'
-        elif batteryPower > 0 and batterySoc < 90:
-            if self.set_max_power(100):
+        elif pvpower <  50:
+            self.dbus['/dynamicGenerationStatus'] = 'PV offline'
+            self.maxPowerPercent = 0  # forces reset when PV comes back online.
+            self.maxPowerMovingAverage = 100
+        elif batteryPower > 0 and ( batterySoc < 90 or batteryVoltage < 54):
+            # note state of charge will not update till it changes as it is a int.
+            # but the battery voltage below about 54v is 90% charge also.
+            if self.set_max_power(4200,f'charging state:{veBusState}:{adjust} batV:{batteryVoltage} batP:{batteryPower}'):
                 self.dbus['/dynamicGenerationStatus'] = 'Configured, charging'
         else:
             energyDifferenceSetting = float(self.settings['energyDifference'])
             consumption = self.state['grid:/Ac/Energy/Consumption']
             energyDifferenceOffset = consumption - (float)(energyDifferenceSetting)
-            log.debug(f'energy difference {energyDifferenceOffset} {pvlimit} ')
+            log.debug(f'energy difference {energyDifferenceOffset} {pvlimit} {batterySoc} {batteryPower}')
             if energyDifferenceOffset < -2 and energyDifferenceOffset > -200:
                 self.dbus['/dynamicGenerationPower'] = pvlimit
-                powerPercent = math.ceil(100*pvlimit/4200)
-                if powerPercent < 2:
-                    powerPercent = 2
-                if self.set_max_power(powerPercent):
-                    log.debug(f'setting limit to  {powerPercent} % for {pvlimit} W')
+                if self.set_max_power(pvlimit,f'limiting state:{veBusState}:{adjust} batV:{batteryVoltage} batP:{batteryPower}'):
                     self.dbus['/dynamicGenerationStatus'] = 'Configured, limiting'
             else:
-                if self.set_max_power(100):
+                if self.set_max_power(4200,'non limiting'):
                     self.dbus['/dynamicGenerationMaxPower'] = 4200
                 if abs(energyDifferenceOffset) > 200: 
                     self.dbus['/dynamicGenerationStatus'] = 'Configured, out of range'
@@ -438,11 +481,19 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
                     self.dbus['/dynamicGenerationStatus'] = 'Configured, not limiting'
 
 
-    def set_max_power(self, powerPercent):
-        if abs(self.powerPercent - powerPercent) > 1:
-            self.dbus['/dynamicGenerationMaxPower'] = powerPercent*4200/100
-            self.powerPercent = powerPercent
-            self.write_register(Reg_u16(3, access='holding'), powerPercent)
+    def set_max_power(self, pvlimit, cause):
+        powerPercent = 100*pvlimit/4200
+        if powerPercent < 2:
+            powerPercent = 2
+        if powerPercent > 100:
+            powerPercent = 100
+        self.maxPowerMovingAverage = powerPercent*0.2 + self.maxPowerMovingAverage*0.8 
+        if abs(self.maxPowerPercent - self.maxPowerMovingAverage) > 1:
+            self.maxPowerPercent = self.maxPowerMovingAverage
+            maxPowerPercentInt = math.ceil(self.maxPowerPercent)
+            self.dbus['/dynamicGenerationMaxPower'] = maxPowerPercentInt*4200/100
+            log.info(f'setting limit to  {maxPowerPercentInt} % for {pvlimit} W due to {cause}')
+            self.write_register(Reg_u16(3, access='holding'), maxPowerPercentInt)
             return True
         return False
 
