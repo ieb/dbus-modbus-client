@@ -256,6 +256,7 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
             dbusNames = dbusConn.list_names()
             gridServiceName = None
             batteryServiceName = None
+            vebusServiceName = None
             for x in dbusNames:
                 s = str(x)
                 if s.startswith('com.victronenergy.grid'):
@@ -279,7 +280,7 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
                 self.vebusTracker = BusItemTracker(dbusConn, vebusServiceName, '/', self.vebusChanged)
             if self.systemTracker == None:
                 self.systemTracker = BusItemTracker(dbusConn, 'com.victronenergy.system', '/', self.systemChanged)
-                  
+            
 
         '''
         self.pvPowerTracker = BusItemTracker(dbusConn, 'com.victronenergy.system', '/Ac/PvOnGrid/L1/Power', self.pvPowerChanged)

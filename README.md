@@ -146,15 +146,20 @@ First thing to remember is that dbus is a rpc and event system. Reading a proper
 
 VeDbusImport didnt work well. It blocked waiting for a event loop the constructor and didnt get anything in most cases. Watching for signals using a dbus proxy does work, and looking up available services by name also works. Remember that the dbus values must be converted to native values (eg float(dbusvalue)) to be usable in calculations.  It seems to be better to scan for the original device (eg the can dbus service connected to the battery, and the vebus service) rather than using the system service which has more latency.
 
+# Memory leak
+
+The code has a memory leak that appears when one or more of the modbus units are offline. Quick fix is to restart every 24h. It takes about 14d to get a VSZ od 128mb so its not bad, but needs to be fixed. Other processes are stable. VenusOS has no support for pip. Python is 3.8 so adding the normal tooling to find a memory problem is hard. However `_tracemalloc` c code is compiled in to the tracemalloc.py from the current cpython source code can be adpated (see gc_debug.py) and hopefully after 24h there will be some pointers (lol) to the source of the leak.
+
 # TODO
 
 [x] Add Estron SDM230 support
 [ ] Find out the relevance of ProductID and why Victron Support need to allocate one, if they do.
 [x] Write a drive for Growatt MIN inverters using the MultiRS dbus area.
 [x] Try and add missing data from the SDM230 to the dbus
-[ ] Connect a p8s exporter to the dbus for more detailed monitoring via Grafana Cloud.
+[-] Connect a p8s exporter to the dbus for more detailed monitoring via Grafana Cloud. seperate exporter.
 [ ] Allow control of the PV inverter via VRM.
-[ ] Find a way of the driver continuing to work when the Growatt goes to sleep at night - made SerialClient run a rescan operation and keep failed devices in the list to be retried
+[x] Find a way of the driver continuing to work when the Growatt goes to sleep at night - made SerialClient run a rescan operation and keep failed devices in the list to be retried
+[ ] Fix memory leak. Appears to happen when the Growatt goes to sleep. Simple fix is to restart once every 24h.
 
 
 ## VregLink

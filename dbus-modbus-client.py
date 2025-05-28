@@ -29,6 +29,7 @@ import watchdog
 import eastron_sdm230
 import growatt_pv_v120
 
+
 import logging
 log = logging.getLogger(__name__)
 
@@ -430,6 +431,8 @@ def main():
     parser.add_argument('-m', '--mode', choices=['ascii', 'rtu'], default='rtu')
     parser.add_argument('--models', action='store_true',
                         help='List supported device models')
+    parser.add_argument('--leak',
+                        help='Enable memory leak detection', default=600)
     parser.add_argument('-P', '--probe', action='append')
     parser.add_argument('-r', '--rate', type=int, action='append')
     parser.add_argument('-s', '--serial')
@@ -443,6 +446,8 @@ def main():
 
     logging.getLogger('pymodbus.client.sync').setLevel(logging.CRITICAL)
     logging.getLogger('pymodbus.protocol').setLevel(logging.DEBUG)
+
+
 
     if args.models:
         list_models()
@@ -474,6 +479,14 @@ def main():
     client.init(args.force_scan, force_devices=args.force_devices)
 
     GLib.timeout_add(UPDATE_INTERVAL, client.update_timer)
+
+    checkLeakPeriod = int(args.leak)
+    if checkLeakPeriod > 0:
+        log.info('Detect leaks')
+        from gc_debug import detect_leak, init_gcdebug
+        init_gcdebug()
+        GLib.timeout_add_seconds(checkLeakPeriod, detect_leak)
+
     mainloop.run()
 
 if __name__ == '__main__':
