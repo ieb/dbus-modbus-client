@@ -100,6 +100,9 @@ class BaseDevice:
         self.info_regs = []
         self.data_regs = []
         self.alias_regs = {}
+        self.last_seen = 0
+        self.last_warn = 0
+
 
     def destroy(self):
         if self._dbus:
@@ -453,6 +456,7 @@ class ModbusDevice(BaseDevice):
         self.subdevices = []
         self.latency = modbus.timeout
         self.need_reinit = False
+        self.init_done = False
         self.log = logging.getLogger(str(self))
         self.log.addFilter(self)
 
@@ -539,28 +543,37 @@ class ModbusDevice(BaseDevice):
         self.need_reinit = True
 
     def init(self, dbus, enable=True):
-        self.enabled = enable
-        self.modbus.timeout = self.timeout
-        self.device_init()
-        self.read_info()
-        self.init_device_settings(dbus)
-        self.need_reinit = False
+        if self.init_done:
+            return True
+        try:
+            self.enabled = enable
+            self.modbus.timeout = self.timeout
+            self.device_init()
+            self.read_info()
+            self.init_device_settings(dbus)
+            self.need_reinit = False
 
-        if not self.enabled:
-            self.modbus.put()
-            return
+            if not self.enabled:
+                self.modbus.put()
+                return
 
-        self.init_dbus()
-        self.init_data_regs()
+            self.init_dbus()
+            self.init_data_regs()
 
-        self.latfilt = LatencyFilter(self.latency)
-        self.device_init_late()
-        self.need_reinit = False
+            self.latfilt = LatencyFilter(self.latency)
+            self.device_init_late()
+            self.need_reinit = False
 
-        self.dbus.flush()
+            self.dbus.flush()
 
-        for s in self.subdevices:
-            s.init()
+            for s in self.subdevices:
+                s.init()
+            self.init_done = True
+            return True
+        except Exception as err:
+            traceback.print_exc()
+            return False
+
 
     def update(self):
         if self.need_reinit:

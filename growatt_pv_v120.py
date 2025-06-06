@@ -141,6 +141,7 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
         self.systemTracker = None
         self.vebusTracker = None
         self.batteryTracker = None
+        self.timeout = GrowattPVInverter.min_timeout
 
         # manufacturer information ascii in reg 34 count 8
         # Firmware acii reg 9 count 3

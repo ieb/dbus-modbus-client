@@ -39,7 +39,7 @@ class Eastron_SDM230v2(device.EnergyMeter,device.CustomName):
     productname = 'Eastron SDM230-Modbus v2'
     device_type = 'EnergyMeter'
     vendor_name = 'Eastron'
-    min_timeout = 0.5
+    min_timeout = 1.0
     phaseconfig = '1P'
     default_access = 'input'
     allowed_roles = ['grid', 'pvinverter', 'genset', 'acload']
@@ -49,6 +49,8 @@ class Eastron_SDM230v2(device.EnergyMeter,device.CustomName):
 
     def __init__(self, *args):
         super(Eastron_SDM230v2, self).__init__(*args)
+        self.timeout = Eastron_SDM230v2.min_timeout
+
         # see page 23 in https://www.eastroneurope.com/images/uploads/products/manuals/SDM630MCT-ML_User_manual_V1.2.pdf
         # seems to be correct for a SDM203 also.
         self.info_regs = [

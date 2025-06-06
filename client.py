@@ -95,23 +95,17 @@ class SerialClient(ModbusExtras, ModbusSerialClient):
 
 serial_ports = {}
 
-def make_client(m):
-    if m.method == 'tcp':
-        return TcpClient(m.target, m.port)
-
-    if m.method == 'udp':
-        return UdpClient(m.target, m.port)
-
-    tty = m.target
+def make_client(tty, rate, method):
 
     if tty in serial_ports:
         client = serial_ports[tty]
-        if client.baudrate != m.rate:
+        if client.baudrate != rate:
             raise Exception('rate mismatch on %s' % tty)
         return client.get()
 
     dev = '/dev/%s' % tty
-    client = SerialClient(m.method, port=dev, baudrate=m.rate)
+    log.info(f'Creating serial client on {dev} rate {rate}')
+    client = SerialClient(method, port=dev, baudrate=rate)
     if not client.connect():
         client.put()
         return None
