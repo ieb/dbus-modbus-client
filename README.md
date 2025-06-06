@@ -150,6 +150,20 @@ VeDbusImport didnt work well. It blocked waiting for a event loop the constructo
 
 The code has a memory leak that appears when one or more of the modbus units are offline. Quick fix is to restart every 24h. It takes about 14d to get a VSZ od 128mb so its not bad, but needs to be fixed. Other processes are stable. VenusOS has no support for pip. Python is 3.8 so adding the normal tooling to find a memory problem is hard. However `_tracemalloc` c code is compiled in to the tracemalloc.py from the current cpython source code can be adpated (see gc_debug.py) and hopefully after 24h there will be some pointers (lol) to the source of the leak.
 
+No memory leak found in Python objects or variables. Verified with gc, tracemalloc and gippy3. Moving to lower leved with https://github.com/rogerhu/gdb-heap, hopefully VenusOS has the dependencies availalbe.
+
+    sudo apt-get install libc6-dev libc6-dbg python-gi libglib2.0-0-dbg python-ply
+    becomes
+    opkg install libc6-dev libc6-dbg libglib-2.0-dbg python3-ply
+    there is no python-gi  but it looks like that is already installed as GLib is under gi.
+
+Although the dbg packages are listed, they have been removed from the Victron repository. 
+
+No dbg packages are available. So have stripped out the unecessary scanning and probing code which was causing problem.
+There may be more simplifications also as there is no need for ModbusTCP support and that seems to have overcomplicated
+the original code base.
+
+
 # TODO
 
 [x] Add Estron SDM230 support
