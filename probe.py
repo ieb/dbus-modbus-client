@@ -4,6 +4,7 @@ import time
 
 import client
 import utils
+import traceback
 
 log = logging.getLogger(__name__)
 
@@ -18,7 +19,10 @@ def probe(mlist, pr_cb=None, pr_interval=10, timeout=None, filt=None):
         try:
             modbus = client.make_client(m)
             unit = m.unit
-        except:
+        except Exception as err:
+
+            traceback.print_exc()
+            print(f' exception making client {err}')
             continue
 
         if not modbus:

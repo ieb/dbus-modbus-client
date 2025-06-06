@@ -93,6 +93,7 @@ class BaseDevice:
         self.role = None
         self.info = {}
         self.dbus = None
+        self._dbus = None
         self.settings = None
         self._settings = None
         self.dbus_settings = {}
@@ -101,10 +102,10 @@ class BaseDevice:
         self.alias_regs = {}
 
     def destroy(self):
-        if self.dbus:
+        if self._dbus:
             self._dbus.__del__()
             self._dbus = None
-            self.dbus = None
+        self.dbus = None
         if self.settings:
             self.settings._settings = None
             self.settings = None

@@ -159,7 +159,7 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
 
 
     def destroy(self):
-     
+        log.info(f'Destroy device {self}')
         if self.gridTracker:
             self.gridTracker.__del__()
             self.gridTracker = None

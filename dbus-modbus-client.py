@@ -6,7 +6,6 @@ import dbus.mainloop.glib
 import faulthandler
 from functools import partial
 import os
-import pymodbus.constants
 import signal
 import sys
 import time
@@ -38,7 +37,6 @@ VERSION = '1.62'
 
 __all__ = ['NAME', 'VERSION']
 
-pymodbus.constants.Defaults.Timeout = 0.5
 
 MODBUS_TCP_PORT = 502
 
@@ -88,14 +86,27 @@ class Client:
             self.scanner.stop()
 
     def scan_update(self):
+        # The scanner will or may be populating the devices it finds in the background.
+        # get the list of devices
+        # these are new devices that were not previously present.
         devices = self.scanner.get_devices()
-
+        # drop devices that are already active.
+        new_devices = []
         for d in devices:
-            # remove devices that are already active
-            if d in self.devices:
+            active = False
+            for active_device in self.devices:
+                if active_device.unit == d.unit:
+                    active = True
+                    log.info(f'Device found Already active {d}')
+                    continue
+                else:
+                    log.info(f'No match {d.unit} == {active_device.unit}')
+            if active:
                 d.destroy()
-                continue
+            else:
+                new_devices.append(d)
 
+        for d in new_devices:
             # try to initialise new devices
             try:
                 log.info(f'Try init on {d}')
@@ -483,9 +494,9 @@ def main():
     checkLeakPeriod = int(args.leak)
     if checkLeakPeriod > 0:
         log.info('Detect leaks')
-        from gc_debug import detect_leak, init_gcdebug
-        init_gcdebug()
-        GLib.timeout_add_seconds(checkLeakPeriod, detect_leak)
+        from gc_debug import LeakDetector
+        leak_detector = LeakDetector()
+        GLib.timeout_add_seconds(checkLeakPeriod, leak_detector.detect_leak)
 
     mainloop.run()
 

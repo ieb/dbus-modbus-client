@@ -561,40 +561,89 @@ class Snapshot:
         statistics.sort(reverse=True, key=StatisticDiff._sort_key)
         return statistics
 
+class LeakDetector:
+    def __init__(self):
+        self.last_snapshot = None
+        _tracemalloc.start()
+        gc.enable(  )
+        gc.set_debug(gc.DEBUG_STATS)
+        log.info(f'Threasholds {gc.get_threshold()}')
+
+        from guppy import hpy; 
+        self.h=hpy()
 
 
-def take_snapshot():
-    """
-    Take a snapshot of traces of memory blocks allocated by Python.
-    """
-    if not _tracemalloc.is_tracing():
-        raise RuntimeError("the tracemalloc module must be tracing memory "
-                           "allocations to take a snapshot")
-    traces = _tracemalloc._get_traces()
-    traceback_limit = _tracemalloc.get_traceback_limit()
-    return Snapshot(traces, traceback_limit)
 
 
 
-def detect_leak():
-    """
-    show us what the garbage is about
-    """
-    # Force collection
-    gc.collect()
-    #log.info(f'Stats:{gc.get_stats()}')
-    #log.info(f'GARBAGE OBJECTS: {gc.garbage}')
-    snapshot = take_snapshot()
-    top_stats = snapshot.statistics('lineno')
-    log.info("[ Top 10 allocations ]")
-    for stat in top_stats[:10]:
-        log.info(stat)
+    def take_snapshot(self):
+        """
+        Take a snapshot of traces of memory blocks allocated by Python.
+        """
+        if not _tracemalloc.is_tracing():
+            raise RuntimeError("the tracemalloc module must be tracing memory "
+                               "allocations to take a snapshot")
+        traces = _tracemalloc._get_traces()
+        traceback_limit = _tracemalloc.get_traceback_limit()
+        return Snapshot(traces, traceback_limit)
 
-    return True
 
-def init_gcdebug():
-    _tracemalloc.start()
-    gc.enable(  )
-    gc.set_debug(gc.DEBUG_STATS)
-    log.info(f'Threasholds {gc.get_threshold()}')
+    def detect_leak(self):
+        """
+        show us what the garbage is about
+        """
+        # Force collection
+        gc.collect()
+        #log.info(f'Stats:{gc.get_stats()}')
+        #log.info(f'GARBAGE OBJECTS: {gc.garbage}')
+
+        snapshot = self.take_snapshot()
+        top_stats = snapshot.statistics('lineno')
+        log.info("[ Top 10 allocations ]")
+        for stat in top_stats[:10]:
+            log.info(stat)
+
+        if self.last_snapshot:
+            diff_stats = snapshot.compare_to(self.last_snapshot, 'lineno')
+            log.info("[ Top 10 diffs ]")
+            for stat in diff_stats[:10]:
+                log.info(stat)
+        self.last_snapshot = snapshot
+
+        print(f' heap {self.h.heap()}')
+
+        return True
+
+
+
+class LeakTestObject:
+    def __init__(self):
+        self.a = [0]*100
+        for x in range(100):
+            self.a[x] = x
+
+class LeakTestHolder:
+    def __init__(self):
+        self.hold = []
+
+    def doLeak(self):
+        for x in range(10):
+            self.hold.append((LeakTestObject()))
+        return True
+
+
+if __name__ == '__main__':
+
+    logging.basicConfig(format='%(asctime)s %(levelname)s %(name)-10s %(message)s',
+                    level=(logging.INFO))
+
+    leak_detector = LeakDetector()
+    leak_creator = LeakTestHolder()
+    for x in range(10):
+        leak_creator.doLeak()
+    leak_detector.detect_leak()
+    for x in range(10):
+        leak_creator.doLeak()
+    leak_detector.detect_leak()
+
 
