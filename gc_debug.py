@@ -14,6 +14,7 @@ import linecache
 import os.path
 import pickle
 import logging
+import resource
 log = logging.getLogger(__name__)
 
 # Import types and functions implemented in C, 
@@ -564,13 +565,13 @@ class Snapshot:
 class LeakDetector:
     def __init__(self):
         self.last_snapshot = None
-        _tracemalloc.start()
+        #_tracemalloc.start()
         gc.enable(  )
-        gc.set_debug(gc.DEBUG_STATS)
-        log.info(f'Threasholds {gc.get_threshold()}')
+        #gc.set_debug(gc.DEBUG_STATS)
+        #log.info(f'Threasholds {gc.get_threshold()}')
 
-        from guppy import hpy; 
-        self.h=hpy()
+        #from guppy import hpy; 
+        #self.h=hpy()
 
 
 
@@ -597,20 +598,21 @@ class LeakDetector:
         #log.info(f'Stats:{gc.get_stats()}')
         #log.info(f'GARBAGE OBJECTS: {gc.garbage}')
 
-        snapshot = self.take_snapshot()
-        top_stats = snapshot.statistics('lineno')
-        log.info("[ Top 10 allocations ]")
-        for stat in top_stats[:10]:
-            log.info(stat)
+        #snapshot = self.take_snapshot()
+        #top_stats = snapshot.statistics('lineno')
+        #log.info("[ Top 10 allocations ]")
+        #for stat in top_stats[:10]:
+        #    log.info(stat)
 
-        if self.last_snapshot:
-            diff_stats = snapshot.compare_to(self.last_snapshot, 'lineno')
-            log.info("[ Top 10 diffs ]")
-            for stat in diff_stats[:10]:
-                log.info(stat)
-        self.last_snapshot = snapshot
+        #if self.last_snapshot:
+        #    diff_stats = snapshot.compare_to(self.last_snapshot, 'lineno')
+        #    log.info("[ Top 10 diffs ]")
+        #    for stat in diff_stats[:10]:
+        #        log.info(stat)
+        #self.last_snapshot = snapshot
 
-        print(f' heap {self.h.heap()}')
+        #print(f' heap {self.h.heap()}')
+        print(f'Memory usage {resource.getrusage(resource.RUSAGE_SELF)}')
 
         return True
 

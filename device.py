@@ -149,7 +149,7 @@ class BaseDevice:
         rr = self.read_modbus(reg.base, reg.count, reg.access)
 
         if rr.isError():
-            self.log.error('Error reading register %#04x: %s', reg.base, rr)
+            #self.log.error('Error reading register %#04x: %s', reg.base, rr)
             raise Exception(rr)
 
         reg.decode(rr.registers)
@@ -185,7 +185,7 @@ class BaseDevice:
 
         if rr.isError():
             raise Exception('Error reading registers %#04x-%#04x: %s' %
-                            (start, start + count - 1, rr))
+                            (start, start + count - 1, rr))  # HERE
 
         for reg in regs:
             base = reg.base - start
@@ -456,9 +456,14 @@ class ModbusDevice(BaseDevice):
         self.subdevices = []
         self.latency = modbus.timeout
         self.need_reinit = False
-        self.init_done = False
+        self.init_done = False  # initialisation has been done
+        self.next_init = time.time() # time after which next init can start
+        self.next_retry_at = self.next_init # if update is failing retry at this time
         self.log = logging.getLogger(str(self))
         self.log.addFilter(self)
+        self.update_count = 0
+        self.update_sucess = 0
+        self.init_fail_count = 0
 
     def filter(self, rec):
         rec.msg = '[%s] %s' % (self, rec.msg)
@@ -545,7 +550,11 @@ class ModbusDevice(BaseDevice):
     def init(self, dbus, enable=True):
         if self.init_done:
             return True
+        now = time.time()
         try:
+            if now - self.next_init < 0:
+                return False
+            log.debug(f'Try init unit:{self.unit}')
             self.enabled = enable
             self.modbus.timeout = self.timeout
             self.device_init()
@@ -569,9 +578,14 @@ class ModbusDevice(BaseDevice):
             for s in self.subdevices:
                 s.init()
             self.init_done = True
+            log.info(f'Suceess init unit:{self.unit}')
             return True
         except Exception as err:
-            traceback.print_exc()
+            # wait 60s before retrying init.
+            self.next_init = now + 60
+            self.init_fail_count = self.init_fail_count + 1
+            log.debug(f'Fail init unit:{self.unit}')
+# temp removed            traceback.print_exc()
             return False
 
 
@@ -581,13 +595,31 @@ class ModbusDevice(BaseDevice):
 
         if not self.enabled:
             return
+        now = time.time()
+        if now - self.last_seen > 30:
+            # currently failing, see if a retry delay has passed
+            if now - self.next_retry_at < 0:
+                return
+            # can retry, so updatee the next_retry_at time 
+            # if there are no further failures normall polling will continue
+            log.debug(f'Retry update unit {self.unit}')
+            self.next_retry_at = now + 60
 
+
+        self.update_count = self.update_count + 1      
         self.modbus.timeout = self.timeout
-        self.device_update()
+        self.device_update()    # HERE
         self.post_update()
+        # reset the timeout markers
+        self.last_seen = time.time()
+        self.last_warn = self.last_seen
+        self.update_sucess = self.update_sucess + 1      
+
+    def print_metrics(self):
+        log.info(f'status unit:{self.unit} init_fail:{self.init_fail_count} updates:{self.update_count} sucess:{self.update_sucess} fail:{self.update_count - self.update_sucess}')
 
     def device_update(self):
-        latency = self.update_data_regs()
+        latency = self.update_data_regs()  #HERE
 
         for s in self.subdevices:
             s.device_update()

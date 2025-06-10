@@ -10,6 +10,7 @@ import signal
 import sys
 import time
 import traceback
+import resource
 from gi.repository import GLib
 
 sys.path.insert(1, os.path.join(os.path.dirname(__file__), 'ext', 'velib_python'))
@@ -68,6 +69,8 @@ class Client:
         self.auto_scan = False
         self.err_exit = False
         self.svc = None
+        self.rss = 0
+        self.last_rss_change = 0
         self.watchdog = watchdog.Watchdog()
 
  
@@ -98,17 +101,40 @@ class Client:
         modbus = client.make_client(self.tty, self.rate, self.mode)
 
         self.devices = [
+            eastron_sdm230.Eastron_SDM230v2(SerialDevSpec(self.mode,self.tty,self.rate,2), modbus, 'SDM230Modbusv2'),
             growatt_pv_v120.GrowattPVInverter(SerialDevSpec(self.mode,self.tty,self.rate,1), modbus, 'Growatt MIN 4200-TL'),
-            eastron_sdm230.Eastron_SDM230v2(SerialDevSpec(self.mode,self.tty,self.rate,2), modbus, 'SDM230Modbusv2')
+            # Add a fake unit to trigger the leak, hopefully
+            # growatt_pv_v120.GrowattPVInverter(SerialDevSpec(self.mode,self.tty,self.rate,5), modbus, 'Test5 Growatt MIN 4200-TL'),
+            #growatt_pv_v120.GrowattPVInverter(SerialDevSpec(self.mode,self.tty,self.rate,6), modbus, 'Test6 Growatt MIN 4200-TL'),
+            #growatt_pv_v120.GrowattPVInverter(SerialDevSpec(self.mode,self.tty,self.rate,7), modbus, 'Test7 Growatt MIN 4200-TL'),
+            #growatt_pv_v120.GrowattPVInverter(SerialDevSpec(self.mode,self.tty,self.rate,8), modbus, 'Test8 Growatt MIN 4200-TL'),
         ]
 
+
+    def check_rss(self):
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        if rss != self.rss:
+            now = time.time()
+            change = rss-self.rss
+            rate = 0
+            if self.last_rss_change > 0:
+                elapsed = now - self.last_rss_change
+                rate = (3600.0*change)/(elapsed*1024)
+            log.info(f' rss:{rss} change:{change} rate:{rate} MB/h')
+            for d in self.devices:
+                d.print_metrics()
+            self.rss = rss
+            self.last_rss_change = now
+            if self.rss > 32000:
+                log.error(f'RSS reached limit, exiting')
+                sys.exit()
 
 
     def update_timer(self):
         try:
             for d in self.devices:
                 self.update_device(d)
-
+            self.check_rss()
             self.watchdog.update()
         except:
             log.error('Uncaught exception in update')
@@ -121,8 +147,6 @@ class Client:
         try:
             if dev.init(self.dbusconn, True):
                 dev.update()
-                dev.last_seen = time.time()
-                dev.last_warn = time.time()         
         except Exception as ex:
             if time.time() - dev.last_seen > FAIL_TIMEOUT:
                 if time.time() - dev.last_warn > WARN_TIMEOUT:
@@ -149,7 +173,7 @@ def main():
     parser.add_argument('--models', action='store_true',
                         help='List supported device models')
     parser.add_argument('--leak',
-                        help='Enable memory leak detection', default=600)
+                        help='Enable memory leak detection', default=120)
     parser.add_argument('-P', '--probe', action='append')
     parser.add_argument('-r', '--rate', type=int)
     parser.add_argument('-s', '--serial')
@@ -162,7 +186,8 @@ def main():
                         level=(logging.DEBUG if args.debug else logging.INFO))
 
     logging.getLogger('pymodbus.client.sync').setLevel(logging.CRITICAL)
-    logging.getLogger('pymodbus.protocol').setLevel(logging.DEBUG)
+#    logging.getLogger('pymodbus').setLevel(logging.DEBUG)
+#    logging.getLogger('pymodbus.protocol').setLevel(logging.DEBUG)
 
 
 
@@ -185,11 +210,11 @@ def main():
     GLib.timeout_add(UPDATE_INTERVAL, client.update_timer)
 
     checkLeakPeriod = int(args.leak)
-    if checkLeakPeriod > 0:
-        log.info('Detect leaks')
-        from gc_debug import LeakDetector
-        leak_detector = LeakDetector()
-        GLib.timeout_add_seconds(checkLeakPeriod, leak_detector.detect_leak)
+    #if checkLeakPeriod > 0:
+    #    log.info('Detect leaks')
+    #    from gc_debug import LeakDetector
+    #    leak_detector = LeakDetector()
+    #    GLib.timeout_add_seconds(checkLeakPeriod, leak_detector.detect_leak)
 
     mainloop.run()
 
