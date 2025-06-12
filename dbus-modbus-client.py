@@ -39,19 +39,9 @@ VERSION = '2.01'
 __all__ = ['NAME', 'VERSION']
 
 
-MODBUS_TCP_PORT = 502
 
-FAIL_TIMEOUT = 3600
-WARN_TIMEOUT = 600
-FAILED_INTERVAL = 10
-MDNS_CHECK_INTERVAL = 5
-MDNS_QUERY_INTERVAL = 60
-SCAN_INTERVAL = 60
 UPDATE_INTERVAL = 100
 
-if_blacklist = [
-    'ap0',
-]
 
 def percent(path, val):
     return '%d%%' % val
@@ -133,7 +123,8 @@ class Client:
     def update_timer(self):
         try:
             for d in self.devices:
-                self.update_device(d)
+                if d.init(self.dbusconn, True):
+                    d.update()
             self.check_rss()
             self.watchdog.update()
         except:
@@ -143,15 +134,6 @@ class Client:
         return True
 
 
-    def update_device(self, dev):
-        try:
-            if dev.init(self.dbusconn, True):
-                dev.update()
-        except Exception as ex:
-            if time.time() - dev.last_seen > FAIL_TIMEOUT:
-                if time.time() - dev.last_warn > WARN_TIMEOUT:
-                    dev.last_warn = time.time()
-                    dev.log.info('Device failed: %s', ex)
 
 
     def setting_changed(self, name, old, new):

@@ -100,8 +100,6 @@ class BaseDevice:
         self.info_regs = []
         self.data_regs = []
         self.alias_regs = {}
-        self.last_seen = 0
-        self.last_warn = 0
 
 
     def destroy(self):
@@ -464,6 +462,8 @@ class ModbusDevice(BaseDevice):
         self.update_count = 0
         self.update_sucess = 0
         self.init_fail_count = 0
+        self.last_seen = 0
+        self.in_fail_state = False
 
     def filter(self, rec):
         rec.msg = '[%s] %s' % (self, rec.msg)
@@ -590,30 +590,41 @@ class ModbusDevice(BaseDevice):
 
 
     def update(self):
-        if self.need_reinit:
-            self.reinit()
+        try:
+            if self.need_reinit:
+                self.reinit()
 
-        if not self.enabled:
-            return
-        now = time.time()
-        if now - self.last_seen > 30:
-            # currently failing, see if a retry delay has passed
-            if now - self.next_retry_at < 0:
+            if not self.enabled:
                 return
-            # can retry, so updatee the next_retry_at time 
-            # if there are no further failures normall polling will continue
-            log.debug(f'Retry update unit {self.unit}')
-            self.next_retry_at = now + 60
+            now = time.time()
+            if now - self.last_seen > 30:
+                # currently failing, see if a retry delay has passed
+                if now - self.next_retry_at < 0:
+                    return
+                # can retry, so updatee the next_retry_at time 
+                # if there are no further failures normall polling will continue
+                log.debug(f'Retry update unit {self.unit}')
+                self.next_retry_at = now + 60
 
 
-        self.update_count = self.update_count + 1      
-        self.modbus.timeout = self.timeout
-        self.device_update()    # HERE
-        self.post_update()
-        # reset the timeout markers
-        self.last_seen = time.time()
-        self.last_warn = self.last_seen
-        self.update_sucess = self.update_sucess + 1      
+            self.update_count = self.update_count + 1      
+            self.modbus.timeout = self.timeout
+            self.device_update()    # HERE
+            self.post_update()
+            # reset the timeout markers
+            self.last_seen = time.time()
+            self.update_sucess = self.update_sucess + 1
+            if self.in_fail_state:
+                self.in_fail_state = False
+                log.info(f'Device {self.model} on unit {self.unit} recovered')
+
+        except Exception as ex:
+            if time.time() - self.last_seen > 300:
+                if not self.in_fail_state:
+                    self.in_fail_state = True
+                    log.info(f'Device {self.model} on unit {self.unit} offline cause:{ex}')
+
+
 
     def print_metrics(self):
         log.info(f'status unit:{self.unit} init_fail:{self.init_fail_count} updates:{self.update_count} sucess:{self.update_sucess} fail:{self.update_count - self.update_sucess}')
