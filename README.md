@@ -122,7 +122,7 @@ see NOTEBOOK.md
 * [ ] Find out the relevance of ProductID and why Victron Support need to allocate one, if they do.
 * [x] Write a drive for Growatt MIN inverters using the MultiRS dbus area.
 * [x] Try and add missing data from the SDM230 to the dbus
-* [-] Connect a p8s exporter to the dbus for more detailed monitoring via Grafana Cloud. seperate exporter.
+* [x] Connect a p8s exporter to the dbus for more detailed monitoring via Grafana Cloud. Done in seperate exporter.
 * [ ] Allow control of the PV inverter via VRM.
 * [x] Find a way of the driver continuing to work when the Growatt goes to sleep at night - made SerialClient run a rescan operation and keep failed devices in the list to be retried
 * [x] Fix memory leak. Appears to happen when the Growatt goes to sleep. Simple fix is to restart once every 24h.
