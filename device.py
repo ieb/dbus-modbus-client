@@ -36,23 +36,40 @@ def modbus_overhead(method):
 def contains_any(a, b, x):
     return any(a <= xx <= b for xx in x) if x else False
 
+def log_packed_reg(rgList):
+    log.debug(f'Packed')
+    for r in rgList:
+        log.debug(f' base:0x{r.base:02x}, count:{r.count}, max_age:{r.max_age}')
+
 def pack_list(rr, access, hole_max, barrier):
+    '''
+    Takes a flat list of registeres in rr and packes it into a list or RegList objects
+    grouped so that the access and packing criteria are met.
+    Registers are packed to keep the maximum hole size to less than max_hole and 
+    not cross over a barrier, the maximum size of the RegList is limited to 125 registers.
+
+
+    When the registeres are processed, if any one of the registers has exceeded its max age, 
+    then all registers are updated.
+    '''
     rr.sort(key=lambda r: r.base)
 
     regs = []
     rg = RegList(access, [rr.pop(0)])
-
+    log.debug(f'Packing Registerers ')
     for r in rr:
         end = rg[-1].base + rg[-1].count
         nr = r.base + r.count - rg[0].base
         if nr > 125 or (r.base - end) > hole_max or \
            contains_any(end, r.base, barrier):
+            log_packed_reg(rg)
             regs.append(rg)
             rg = RegList()
 
         rg.append(r)
 
     if rg:
+        log_packed_reg(rg)
         regs.append(rg)
 
     return regs
@@ -194,6 +211,7 @@ class BaseDevice:
                     if reg.name:
                         d[reg.name] = reg.copy_if_valid()
                 reg.time = now
+
 
         return latency
 
@@ -464,6 +482,7 @@ class ModbusDevice(BaseDevice):
         self.init_fail_count = 0
         self.last_seen = 0
         self.in_fail_state = False
+
 
     def filter(self, rec):
         rec.msg = '[%s] %s' % (self, rec.msg)

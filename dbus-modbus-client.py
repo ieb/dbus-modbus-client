@@ -38,8 +38,7 @@ VERSION = '2.01'
 
 __all__ = ['NAME', 'VERSION']
 
-
-
+# this is in milliseconds
 UPDATE_INTERVAL = 100
 
 

@@ -46,6 +46,9 @@ class Eastron_SDM230v2(device.EnergyMeter,device.CustomName):
     default_role = 'grid'
     default_instance = 40
     nr_phases = None
+    # Group the registeres by their max age by introducing barriers to the packing.
+    # 
+    reg_barrier = ( 0x12, 0x46, 0x156 )
 
     def __init__(self, *args):
         super(Eastron_SDM230v2, self).__init__(*args)
@@ -89,11 +92,11 @@ class Eastron_SDM230v2(device.EnergyMeter,device.CustomName):
     def phase_regs(self, n):
         s = 0x0002 * (n - 1)
         return [
-            Reg_f32b(0x0000 + s, '/Ac/L%d/Voltage' % n,        1, '%.1f V'),
-            Reg_f32b(0x0006 + s, '/Ac/L%d/Current' % n,        1, '%.1f A'),
-            Reg_f32b(0x000c + s, '/Ac/L%d/Power' % n,          1, '%.1f W'),
-            Reg_f32b(0x0048 + s, '/Ac/L%d/Energy/Forward' % n, 1, '%.1f kWh'),
-            Reg_f32b(0x004a + s, '/Ac/L%d/Energy/Reverse' % n, 1, '%.1f kWh'),
+            Reg_f32b(0x0000 + s, '/Ac/L%d/Voltage' % n,        1, '%.1f V', max_age=0.28),
+            Reg_f32b(0x0006 + s, '/Ac/L%d/Current' % n,        1, '%.1f A', max_age=0.28),
+            Reg_f32b(0x000c + s, '/Ac/L%d/Power' % n,          1, '%.1f W', max_age=0.28),
+            Reg_f32b(0x0048 + s, '/Ac/L%d/Energy/Forward' % n, 1, '%.1f kWh', max_age=15),
+            Reg_f32b(0x004a + s, '/Ac/L%d/Energy/Reverse' % n, 1, '%.1f kWh', max_age=15),
         ]
 
     def device_init(self):
@@ -103,11 +106,23 @@ class Eastron_SDM230v2(device.EnergyMeter,device.CustomName):
         phases = 1
 
         regs = [
-            Reg_f32b(0x000c, '/Ac/Power',          1, '%.1f W'),
-            Reg_f32b(0x0006, '/Ac/Current',        1, '%.1f A'),
-            Reg_f32b(0x0046, '/Ac/Frequency',      1, '%.1f Hz'),
-            Reg_f32b(0x0048, '/Ac/Energy/Forward', 1, '%.1f kWh'),
-            Reg_f32b(0x004a, '/Ac/Energy/Reverse', 1, '%.1f kWh'),
+            Reg_f32b(0x0000, '/Ac/Voltage',        1, '%.1f V', max_age=0.28),
+            Reg_f32b(0x0006, '/Ac/Current',        1, '%.1f A', max_age=0.28),
+            Reg_f32b(0x000c, '/Ac/Power',          1, '%.1f W', max_age=0.28),
+
+            Reg_f32b(0x0012, '/Ac/ApparentPower',  1, '%.1f W', max_age=5),
+            Reg_f32b(0x0018, '/Ac/ReactivePower',  1, '%.1f VAr', max_age=5),
+            Reg_f32b(0x001E, '/Ac/PowerFactor',    1, '%.1f', max_age=5),
+
+            Reg_f32b(0x0046, '/Ac/Frequency',      1, '%.1f Hz', max_age=15),
+            Reg_f32b(0x0048, '/Ac/Energy/Forward', 1, '%.1f kWh', max_age=15),
+            Reg_f32b(0x004a, '/Ac/Energy/Reverse', 1, '%.1f kWh', max_age=15),
+            Reg_f32b(0x004c, '/Ac/Energy/ReactiveForward', 1, '%.1f VAhr', max_age=15),
+            Reg_f32b(0x004e, '/Ac/Energy/ReactiveReverse', 1, '%.1f VAhr', max_age=15),
+
+            Reg_f32b(0x0156, '/Ac/Energy/Total', 1, '%.1f kWh', max_age=30),
+            Reg_f32b(0x0158, '/Ac/Energy/ReactiveTotal', 1, '%.1f VAhr', max_age=30),
+
         ]
 
 

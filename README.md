@@ -24,6 +24,12 @@ Installed as a seperate service in /data not using serial-starter, since in gene
 
 # Setup
 
+Login
+
+Gain access to the GX device as root and install a ssh public key. The device does not have other login users and if it did they would likely be wiped out on any upgrade. For first time install put move roots home the the data partition to avoid it being reset. Note, the file system is flash and / may be an overlay filesystem that does not persist changes over a reboot. /data does. If these instructions were followed and you are returning to a device after months, then check your own ~/.ssh to see if there is a public/private key that matches then:
+
+    ssh ~.ssh/myprivatekeyForGXDevice root@<IP address>
+
 On the GX device
 
     mkdir /data/dbus-mymodbus-client

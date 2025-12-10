@@ -542,11 +542,11 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
     def tracker_regs(self, n):
         s = 4 * n
         return [
-            Reg_u16(3 + s, '/Internal/Pv/%d/V' % n,      10, '%.1f V'),
-            Reg_u16(4 + s, '/Internal/Pv/%d/I' % n,      10, '%.1f A'),
-            Reg_u32b(5 + s, '/Internal/Pv/%d/P' % n,      10, '%.1f W'),
-            Reg_u32b(59 + s, '/Internal/Pv/%d/Energy/Today' % n,  10, '%.1f W'),
-            Reg_u32b(61 + s, '/Internal/Pv/%d/Energy/Total' % n,  10, '%.1f W'),
+            Reg_u16(3 + s, '/Internal/Pv/%d/V' % n,      10, '%.1f V',max_age=5),
+            Reg_u16(4 + s, '/Internal/Pv/%d/I' % n,      10, '%.1f A',max_age=5),
+            Reg_u32b(5 + s, '/Internal/Pv/%d/P' % n,      10, '%.1f W',max_age=5),
+            Reg_u32b(59 + s, '/Internal/Pv/%d/Energy/Today' % n,  10, '%.1f W',max_age=15),
+            Reg_u32b(61 + s, '/Internal/Pv/%d/Energy/Total' % n,  10, '%.1f W',max_age=30),
         ]
 
     def device_init(self):
@@ -556,24 +556,24 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
 
         # standard pviverter model
         regs = [
-            Reg_u32b(35, '/Ac/Power',                 10, '%.1f W'),
-            Reg_u16(39,  '/Ac/Current',               10, '%.1f A'),
-            Reg_u16(38,  '/Ac/Voltage',               10, '%.1f V'),
-            Reg_u32b(55, '/Ac/Energy/Forward',        10, '%.1f kWh'),
-            Reg_u16(39,  '/Ac/L1/Current',            10, '%.1f A'),
-            Reg_u32b(35, '/Ac/L1/Power',              10, '%.1f W'),
-            Reg_u32b(53, '/Ac/L1/Energy/Forward',     10, '%.1f kWh'),
-            Reg_u16(38,  '/Ac/L1/Voltage',            10, '%.1f V'),
-            Reg_u16(105, '/ErrorCode'),
-            Reg_u16(93, '/Internal/InverterTemp',      10, '%.1f C'),
-            Reg_u16(94, '/Internal/IPMTemp',      10, '%.1f C'),
-            Reg_u16(95, '/Internal/BoostTemp',      10, '%.1f C'),
-            Reg_u16(104, '/Internal/DerateMode',   1, '%.1f'),
-            Reg_u16(3, '/Internal/activePowerRate',           1, '%.1f', access='holding'),
-            Reg_u16(122, '/Internal/exportLimitType',           1, '%.1f', access='holding'),
-            Reg_u16(123, '/Internal/ExportLimitPowerRate',      10, '%.1f %%', access='holding'),
-            Reg_u16(42, '/Internal/g100FailSafe', 1, '%.1f', access='holding'),
-            Reg_u16(3000, '/Internal/g100FailSafePowerRate',      10, '%.1f W', access='holding'),
+            Reg_u32b(35, '/Ac/Power',                 10, '%.1f W',max_age=5),
+            Reg_u32b(35, '/Ac/L1/Power',              10, '%.1f W',max_age=5),
+            Reg_u16(39,  '/Ac/Current',               10, '%.1f A',max_age=5),
+            Reg_u16(39,  '/Ac/L1/Current',            10, '%.1f A',max_age=5),
+            Reg_u16(38,  '/Ac/Voltage',               10, '%.1f V',max_age=5),
+            Reg_u16(38,  '/Ac/L1/Voltage',            10, '%.1f V',max_age=5),
+            Reg_u32b(55, '/Ac/Energy/Forward',        10, '%.1f kWh',max_age=5),
+            Reg_u32b(53, '/Ac/L1/Energy/Forward',     10, '%.1f kWh',max_age=5),
+            Reg_u16(105, '/ErrorCode',max_age=5),
+            Reg_u16(93, '/Internal/InverterTemp',      10, '%.1f C',max_age=15),
+            Reg_u16(94, '/Internal/IPMTemp',      10, '%.1f C',max_age=15),
+            Reg_u16(95, '/Internal/BoostTemp',      10, '%.1f C',max_age=15),
+            Reg_u16(104, '/Internal/DerateMode',   1, '%.1f',max_age=15),
+            Reg_u16(3, '/Internal/activePowerRate',           1, '%.1f', access='holding',max_age=30),
+            Reg_u16(122, '/Internal/exportLimitType',           1, '%.1f', access='holding',max_age=20),
+            Reg_u16(123, '/Internal/ExportLimitPowerRate',      10, '%.1f %%', access='holding',max_age=30),
+            Reg_u16(42, '/Internal/g100FailSafe', 1, '%.1f', access='holding',max_age=30),
+            Reg_u16(3000, '/Internal/g100FailSafePowerRate',      10, '%.1f W', access='holding',max_age=30),
 
             # Victron values
             # 0=Startup 0; 
