@@ -38,7 +38,7 @@ On the GX device
 
 Here check that the service/run file has the right command line, currently It will scan ttyUSB0 at 9600 for units 1 and 2
 
-    exec /data/dbus-mymodbus-client/dbus-modbus-client.py -x -s /dev/ttyUSB0 -F rtu:ttyUSB0:9600:1,rtu:ttyUSB0:9600:2
+    exec /data/dbus-mymodbus-client/dbus-modbus-client.py -x -s /dev/ttyACM0 -F rtu:ttyUSB0:9600:1,rtu:ttyUSB0:9600:2
 
 Then copy everything here into that location
 
@@ -55,10 +55,10 @@ This should setup permissions and install /data/rc.local to disable scanning of 
     ln -s /data/dbus-mymodbus-client/service /service/dbus-mymodbus-client
     ls -l /service/
     
-    /opt/victronenergy/serial-starter/stop-tty.sh ttyUSB0
-    /opt/victronenergy/serial-starter/stop-tty.sh ttyUSB1
-    /opt/victronenergy/serial-starter/stop-tty.sh ttyUSB2
-    echo "Disabled serial starter on ttyUSB0,1,2"
+    /opt/victronenergy/serial-starter/stop-tty.sh ttyACM0
+    /opt/victronenergy/serial-starter/stop-tty.sh ttyACM1
+    /opt/victronenergy/serial-starter/stop-tty.sh ttyACM2
+    echo "Disabled serial starter on ttyACM0,1,2,3"
 
 
 Start the service
