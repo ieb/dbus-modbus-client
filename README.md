@@ -14,13 +14,15 @@ https://github.com/victronenergy/venus/wiki/howto-add-a-driver-to-Venus
 
 Important parts are if you are installing for a RTU device first stop the serial starter
 
-    /opt/victronenergy/serial-starter/stop-tty.sh ttyUSB0
+    /opt/victronenergy/serial-starter/stop-tty.sh ttyACM0
 
 Then you can run on the command line locally.
 
 To install properly follow the instructions in the wiki document.
 
 Installed as a seperate service in /data not using serial-starter, since in general I want more control over when and how it starts.
+
+ttyACM0,1,2,3 provided by https://www.waveshare.com/wiki/USB_TO_4CH_RS485, to allow more RS485 channels.
 
 # Setup
 

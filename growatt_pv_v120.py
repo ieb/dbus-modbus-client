@@ -141,6 +141,7 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
         self.systemTracker = None
         self.vebusTracker = None
         self.batteryTracker = None
+        self.g100Enabled = False
         self.timeout = GrowattPVInverter.min_timeout
 
         # manufacturer information ascii in reg 34 count 8
@@ -221,6 +222,8 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
         else:
             self.dbus['/dynamicGenerationStatus'] = 'Configured, enabled'
 
+
+
         # paths
         # grid meter /Ac/Energy/Consumption
         # system /Ac/Consumption/L1/Power   power requirement from house
@@ -246,6 +249,7 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
         }
 
         self.createServiceTrackers()
+        self.setG100()
 
     def createServiceTrackers(self):
         if (self.gridTracker == None 
@@ -298,6 +302,21 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
         log.info(f'Done Creating power consumption')
       
         '''
+
+
+    def setG100(self):
+        if not self.g100Enabled:            
+            log.info("Forcing G100 limits based on 4200W output and RS485 Meter")
+            # set max power to 100, just in case the system is derated.
+            self.write_register(Reg_u16(3, access='holding'), 100)
+            # enable Grid meter
+            self.write_register(Reg_u16(122, access='holding'), 1) # RS4885
+            # set power to 1000*3680/4200 = 876.1904761905.04761904762
+            self.write_register(Reg_u16(123, access='holding'), 876) # 87.6%
+            # g100Failsafe assuming this is the only exporting source
+            self.write_register(Reg_u16(3000, access='holding'), 876) # 87.6%
+            self.g100Enabled = True
+
 
     def updateIfDef(self, cls, key, source ):
         if key in source:
@@ -455,7 +474,7 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
         if self.settings['energyDifference'] == 0:
             self.dbus['/dynamicGenerationStatus'] = 'Not Configured'
         elif self.settings['derateGeneration'] == 0:
-            self.dbus['/dynamicGenerationStatus'] = 'Configured, disabled'
+            self.dbus['/dynamicGenerationStatus'] = 'Configured, G100'
         elif pvpower <  50:
             self.dbus['/dynamicGenerationStatus'] = 'PV offline'
             self.maxPowerPercent = 0  # forces reset when PV comes back online.
@@ -502,41 +521,6 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
 
 
 
-
-    def force_export_limit(self, serviceName, path, changes):
-
-        self.set_export_limit(self.derate, changes['Value'])
-
-    def update_export_limit(self, serviceName, path, changes):
-        self.set_export_limit(changes['Value'], self.forceDerate)
-
-    def set_export_limit(self, derate, forceDerate):
-        if forceDerate != self.forceDerate:
-            if forceDerate == 1 or derate == 1:
-                log.info(f'export Limit to 2%')
-                self.enable_ExportLimit(20)
-            elif derate == 0:
-                log.info(f'export Limit to 100%')
-                self.disable_ExportLimit();
-        elif forceDerate == 0 and derate != self.derate:
-            if derate == 1:
-                log.info(f'export Limit to 2%')
-                self.enable_ExportLimit(20)
-            else:
-                log.info(f'export Limit to 100%')
-                self.disable_ExportLimit();
-        self.derate = derate
-        self.forceDerate = forceDerate
-
-    def enable_ExportLimit(self, percent10):
-        self.write_register(Reg_u16(122, access='holding'), 3) # CT
-        self.write_register(Reg_u16(123, access='holding'), percent10) # 2%
-
-    def disable_ExportLimit(self):
-        self.write_register(Reg_u16(122, access='holding'), 0) # disable
-        self.write_register(Reg_u16(123, access='holding'), 1000) # 100%
-
-
         
 
     def tracker_regs(self, n):
@@ -545,8 +529,8 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
             Reg_u16(3 + s, '/Internal/Pv/%d/V' % n,      10, '%.1f V',max_age=5),
             Reg_u16(4 + s, '/Internal/Pv/%d/I' % n,      10, '%.1f A',max_age=5),
             Reg_u32b(5 + s, '/Internal/Pv/%d/P' % n,      10, '%.1f W',max_age=5),
-            Reg_u32b(59 + s, '/Internal/Pv/%d/Energy/Today' % n,  10, '%.1f W',max_age=15),
-            Reg_u32b(61 + s, '/Internal/Pv/%d/Energy/Total' % n,  10, '%.1f W',max_age=30),
+            Reg_u32b(59 + s, '/Internal/Pv/%d/Energy/Today' % n,  10, '%.1f W',max_age=10),
+            Reg_u32b(61 + s, '/Internal/Pv/%d/Energy/Total' % n,  10, '%.1f W',max_age=10),
         ]
 
     def device_init(self):
@@ -555,6 +539,7 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
 
 
         # standard pviverter model
+        # see "Growatt PV Inverter Modbus RS485 RTU Protocol v120.pdf"
         regs = [
             Reg_u32b(35, '/Ac/Power',                 10, '%.1f W',max_age=5),
             Reg_u32b(35, '/Ac/L1/Power',              10, '%.1f W',max_age=5),
@@ -565,15 +550,15 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
             Reg_u32b(55, '/Ac/Energy/Forward',        10, '%.1f kWh',max_age=5),
             Reg_u32b(53, '/Ac/L1/Energy/Forward',     10, '%.1f kWh',max_age=5),
             Reg_u16(105, '/ErrorCode',max_age=5),
-            Reg_u16(93, '/Internal/InverterTemp',      10, '%.1f C',max_age=15),
-            Reg_u16(94, '/Internal/IPMTemp',      10, '%.1f C',max_age=15),
-            Reg_u16(95, '/Internal/BoostTemp',      10, '%.1f C',max_age=15),
-            Reg_u16(104, '/Internal/DerateMode',   1, '%.1f',max_age=15),
-            Reg_u16(3, '/Internal/activePowerRate',           1, '%.1f', access='holding',max_age=30),
-            Reg_u16(122, '/Internal/exportLimitType',           1, '%.1f', access='holding',max_age=20),
-            Reg_u16(123, '/Internal/ExportLimitPowerRate',      10, '%.1f %%', access='holding',max_age=30),
-            Reg_u16(42, '/Internal/g100FailSafe', 1, '%.1f', access='holding',max_age=30),
-            Reg_u16(3000, '/Internal/g100FailSafePowerRate',      10, '%.1f W', access='holding',max_age=30),
+            Reg_u16(93, '/Internal/InverterTemp',      10, '%.1f C',max_age=10),
+            Reg_u16(94, '/Internal/IPMTemp',      10, '%.1f C',max_age=10),
+            Reg_u16(95, '/Internal/BoostTemp',      10, '%.1f C',max_age=10),
+            Reg_u16(104, '/Internal/DerateMode',   1, '%.1f',max_age=10),
+            Reg_u16(3, '/Internal/activePowerRate',           1, '%.1f', access='holding',max_age=10),
+            Reg_u16(122, '/Internal/exportLimitType',           1, '%.1f', access='holding',max_age=10),
+            Reg_u16(123, '/Internal/ExportLimitPowerRate',      10, '%.1f %%', access='holding',max_age=10),
+            Reg_u16(42, '/Internal/g100FailSafe', 1, '%.1f', access='holding',max_age=10),
+            Reg_u16(3000, '/Internal/g100FailSafePowerRate',      10, '%.1f W', access='holding',max_age=10),
 
             # Victron values
             # 0=Startup 0; 

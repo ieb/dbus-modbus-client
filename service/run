@@ -2,4 +2,4 @@
 echo "*** starting dbus-mymodbus-client ***"
 ## export PYTHONMALLOCSTATS=1
 exec 2>&1
-exec /data/dbus-mymodbus-client/dbus-modbus-client.py -x -s /dev/ttyUSB0 -r 9600
+exec /data/dbus-mymodbus-client/dbus-modbus-client.py -x -s /dev/ttyACM0 -r 9600
