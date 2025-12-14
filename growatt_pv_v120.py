@@ -473,8 +473,10 @@ class GrowattPVInverter(device.ModbusDevice, device.CustomName):
 
         if self.settings['energyDifference'] == 0:
             self.dbus['/dynamicGenerationStatus'] = 'Not Configured'
+            self.dbus['/dynamicGenerationMaxPower'] = 4200
         elif self.settings['derateGeneration'] == 0:
             self.dbus['/dynamicGenerationStatus'] = 'Configured, G100'
+            self.dbus['/dynamicGenerationMaxPower'] = 4200
         elif pvpower <  50:
             self.dbus['/dynamicGenerationStatus'] = 'PV offline'
             self.maxPowerPercent = 0  # forces reset when PV comes back online.
