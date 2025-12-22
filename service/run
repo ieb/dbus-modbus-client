@@ -1,5 +1,7 @@
 #!/bin/sh
 echo "*** starting dbus-mymodbus-client ***"
 ## export PYTHONMALLOCSTATS=1
+# Use device IDs to identiy the serial port so it is stable, sometimes the kernel will remap the tty if it detects
+# a problem with the usb hardware. It cant remap the USB ids
 exec 2>&1
-exec /data/dbus-mymodbus-client/dbus-modbus-client.py -x -s /dev/ttyACM0 -r 9600
+exec /data/dbus-mymodbus-client/dbus-modbus-client.py -x -s /dev/serial/by-id/usb-WCH.CN_USB_Quad_Serial_BCD97DABCD-if00 -r 9600

@@ -1,0 +1,4 @@
+#!/bin/sh
+echo "*** starting vedirect-interface ***"
+exec 2>&1
+exec /opt/victronenergy/vedirect-interface/start-vedirect.sh ttyS1 PRODUCT=builtin-vedirect

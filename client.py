@@ -94,7 +94,7 @@ class SerialClient(ModbusExtras, ModbusSerialClient):
                     self.socket.interCharTimeout = self.inter_char_timeout
                 self.last_frame_end = None
         except serial.SerialException as msg:
-            _logger.error(msg)
+            log.error(msg)
             self.close()
         return self.socket is not None
 
@@ -110,8 +110,6 @@ class SerialClient(ModbusExtras, ModbusSerialClient):
 
     def put(self):
         super().put()
-        if self.refcount == 0:
-            del serial_ports[os.path.basename(self.port)]
 
     def execute(self, request=None):
         with self.lock:
@@ -201,9 +199,8 @@ def make_client(tty, rate, method):
             raise Exception('rate mismatch on %s' % tty)
         return client.get()
 
-    dev = '/dev/%s' % tty
-    log.info(f'Creating serial client on {dev} rate {rate}')
-    client = SerialClient(method, port=dev, baudrate=rate)
+    log.info(f'Creating serial client on {tty} rate {rate}')
+    client = SerialClient(method, port=tty, baudrate=rate)
     if not client.connect():
         client.put()
         return None

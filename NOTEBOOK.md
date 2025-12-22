@@ -179,3 +179,13 @@ Not all of these are necesary but they will be wiped out when a upgrade comes an
 in addition
 
       pip3 install guppy3  <-- to analyse python heap
+
+
+
+# Serial Starter
+
+Serial starter depends on some horribly complex reasoning that is fragile with sensitive dependences on udev rules. If these go wrong then the vedirect devices and the mk2 device on ttyS1,2,3 will all fail to be configured and result in a dead inverter. Finding and fixing the cause is hard. When this happend to me, after 14h of investigating I disabled the serial starter, copied the templates from /opt/victronenergy/service-templates and created my own static config. This might break in an upgrade, but so did the udev rules, resulting in a dead Inverter.
+
+The nature of the breakage was udevadmin return no VE_SERVICE property for any of the ttyS* devices, all became ignore.  
+
+Also, dont be templated to use AI to fix udev, there seems to be alot of bad information out there on how to fix it.

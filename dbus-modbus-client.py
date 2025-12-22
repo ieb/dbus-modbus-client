@@ -9,6 +9,7 @@ import os
 import signal
 import sys
 import time
+import hashlib
 import traceback
 import resource
 from gi.repository import GLib
@@ -68,9 +69,16 @@ class Client:
         self.init_settings()
         self.init_devices()
 
+    def hash_path(self, path):
+        h = hashlib.new('sha256')
+        h.update(path.encode('utf-8'))
+        return h.hexdigest()[0:10]
+
+
     def init_settings(self):
-        settings_path = '/Settings/Client/' + self.tty
+        settings_path = '/Settings/Client/' + self.hash_path(self.tty)
         SETTINGS = {
+            'tty':  [settings_path + '/Devices', self.tty, 0, 0],
             'devices':  [settings_path + '/Devices', '', 0, 0],
             'autoscan': [settings_path + '/AutoScan', 0, 0, 1],
         }
@@ -182,8 +190,7 @@ def main():
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     mainloop = GLib.MainLoop()
 
-    tty = os.path.basename(args.serial)
-    client = Client(tty, args.rate, args.mode)
+    client = Client(args.serial, args.rate, args.mode)
 
     client.err_exit = args.exit
     client.init(args.force_scan, force_devices=args.force_devices)

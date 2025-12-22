@@ -1,0 +1,41 @@
+#!/bin/bash
+
+
+for s in dbus-mymodbus-client sdm230device grafana-exporter
+do 
+if [ ! -L /service/${s} ]
+then
+   echo ln -s /data/${s}/service /service/${s}
+else
+   echo /service/${s} present
+fi
+done
+
+# Manuall configure the vedirect amd mk2-vebus services because
+# If the udev rules go wrong, then the inveter wont invert... and AI will tell 
+# you a perfect way to cause this ;)
+
+for s in vedirect-interface.ttyS1 vedirect-interface.ttyS2 mk2-dbus.ttyS3
+do 
+if [ ! -L /service/${s} ]
+then
+   echo ln -s /data/${s} /service/${s}
+else
+   echo /service/${s} present
+fi
+done
+
+
+# Disable serial started
+touch /service/serial-starter/down
+
+####cp /data/cron.d/restarts /etc/cron.d/restarts 
+ls -ltr /service/
+
+
+for tty in ttyS1 ttyS2 ttyS3 ttyACM0 ttyACM1 ttyACM2 ttyACM3 ttyACM4  ttyACM5  ttyACM6
+do
+rm -f /var/lock/serial-starter/${tty}
+ln -s reserved /var/lock/serial-starter/${tty} 
+echo Reserverd ${tty}
+done
