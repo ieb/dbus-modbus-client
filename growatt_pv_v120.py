@@ -93,8 +93,9 @@ class BusItemTracker(object):
 
 
     def __del__(self):
-        self._match.remove()
-        self._match = None
+        if self._match:
+            self._match.remove()
+            self._match = None
     
     @property
     def value(self):
